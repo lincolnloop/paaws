@@ -1,0 +1,24 @@
+[build-system]
+requires = ["flit_core >=2,<3"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.metadata]
+module = "paaws"
+author = "Peter Baumgartner"
+author-email = "pete@lincolnloop.com"
+requires = [
+  "awscli",
+  "awslogs",
+  "blessed",
+  "boto3",
+  "click",
+  "halo",
+  "timeago"
+]
+description-file = "README.md"
+
+[tool.flit.scripts]
+paaws = "paaws.__main__:main"
+
+[tool.flit.metadata.requires-extra]
+dev = ["shiv"]

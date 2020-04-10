@@ -1,0 +1,97 @@
+import datetime
+import time
+from typing import List
+
+import boto3
+import click
+from blessed import Terminal
+from halo import Halo
+from termcolor import colored
+import timeago
+
+from ..app import app
+
+
+def _deployment_line(deployment: dict) -> str:
+    created_ago = timeago.format(
+        deployment["createdAt"], datetime.datetime.now(datetime.timezone.utc)
+    )
+    color_map = {
+        "PRIMARY": "green",
+        "ACTIVE": "yellow",
+    }
+    line = [
+        deployment["id"].split("/")[-1],
+        ": ",
+        colored(deployment["status"].lower(), color_map.get(deployment["status"], "")),
+        colored(" tasks:{runningCount}".format(**deployment), "white"),
+    ]
+    if deployment["runningCount"] != deployment["desiredCount"]:
+        line.append(
+            colored(
+                " desired:{desiredCount} pending:{pendingCount}".format(**deployment),
+                "yellow",
+            )
+        )
+    line.append(
+        colored(
+            " {} ~ {}".format(deployment["createdAt"].isoformat(), created_ago),
+            attrs=["dark"],
+        )
+    )
+    return "".join(line)
+
+
+def _service_status_lines(service):
+    return (
+        [colored("=== ", attrs=["dark"]) + colored(service["serviceName"], "green")]
+        + [_deployment_line(d) for d in service["deployments"]]
+        + [""]
+    )
+
+
+@click.command()
+@click.option("--watch", "-w", default=False, is_flag=True)
+def deployments(watch):
+    """List deployments"""
+    if watch:
+        return _watch_deployment()
+    with Halo(text="fetching deployments", spinner="dots"):
+        services = app.get_services()
+
+    for service in services:
+        print("\n".join(_service_status_lines(service)))
+
+
+def _watch_deployment():
+    with Halo(text="fetching deployments", spinner="dots"):
+        services = app.get_services()
+    ready = [False for s in services]
+    term = Terminal()
+    height = 0
+    refresh_interval = 5
+    while True:
+        text = []
+        for idx, service in enumerate(services):
+            text.extend(_service_status_lines(service))
+            if len(service["deployments"]) == 1:
+                ready[idx] = True
+        # clear screen
+        if height:
+            print(term.move_up(height) + term.clear_eos)
+        print("\n".join(text))
+        if all(ready):
+            break
+        print("")
+        for i in range(refresh_interval):
+            print(
+                term.move_up()
+                + colored(
+                    f"next update in {refresh_interval - i} seconds", attrs=["dark"]
+                )
+            )
+            time.sleep(1)
+
+        height = len(text) + 2
+        services = app.get_services()
+    Halo(text="ready", text_color="green").succeed()
