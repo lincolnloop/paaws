@@ -120,6 +120,14 @@ Here is an example override from `/paaws/apps/ll-prod`:
 
 <!-- generate with `python -m paaws.docs` -->
 
+### `builds`
+
+View build information
+
+* `list` List most recent builds
+* `view` View status for a specific build
+* `logs` View build or test logs for a specific build
+
 ### `config`
 
 View/edit environment variables

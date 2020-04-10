@@ -1,9 +1,12 @@
+import datetime
 from getpass import getuser
 from contextlib import contextmanager
 from typing import List, Optional
 
 import boto3
+import timeago
 from halo import Halo
+from termcolor import colored
 
 
 @contextmanager
@@ -56,3 +59,9 @@ def run_task_until_disconnect(
         startedBy=f"paaws-cli/shell/{getuser()}",
         overrides={"containerOverrides": [{"name": container, "command": command}]},
     )["tasks"][0]
+
+
+def formatted_time_ago(dt: datetime) -> str:
+    ago = timeago.format(dt, datetime.datetime.now(datetime.timezone.utc))
+    full = dt.isoformat(timespec="seconds")
+    return colored(f"{full} ~ {ago}", attrs=["dark"])

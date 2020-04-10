@@ -8,6 +8,7 @@ from termcolor import colored, cprint
 import timeago
 
 from ..app import app
+from ..utils import formatted_time_ago
 
 
 @click.command()
@@ -47,10 +48,7 @@ def ps():
                 ": ",
                 t["lastStatus"].lower(),
                 " ",
-                colored(
-                    "{} ~ {}".format(t["startedAt"].isoformat(), started_ago),
-                    attrs=["dark"],
-                ),
+                formatted_time_ago(t["startedAt"]),
             ]
             print("".join(task_line))
             for c in t["containers"]:

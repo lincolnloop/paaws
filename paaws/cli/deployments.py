@@ -1,21 +1,15 @@
-import datetime
 import time
-from typing import List
 
-import boto3
 import click
 from blessed import Terminal
 from halo import Halo
 from termcolor import colored
-import timeago
 
 from ..app import app
+from ..utils import formatted_time_ago
 
 
 def _deployment_line(deployment: dict) -> str:
-    created_ago = timeago.format(
-        deployment["createdAt"], datetime.datetime.now(datetime.timezone.utc)
-    )
     color_map = {
         "PRIMARY": "green",
         "ACTIVE": "yellow",
@@ -33,12 +27,7 @@ def _deployment_line(deployment: dict) -> str:
                 "yellow",
             )
         )
-    line.append(
-        colored(
-            " {} ~ {}".format(deployment["createdAt"].isoformat(), created_ago),
-            attrs=["dark"],
-        )
-    )
+    line.append(" " + formatted_time_ago(deployment["createdAt"]))
     return "".join(line)
 
 
