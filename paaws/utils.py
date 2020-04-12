@@ -39,25 +39,52 @@ def wait_for_task(
     spinner.succeed()
 
 
-def run_task_until_disconnect(
-    cluster: str, task_defn: str, container: Optional[str] = None
-) -> dict:
+def run_task_until_disconnect(cluster: str, task_defn: str) -> dict:
+    """
+    Create a task that with a shell command that runs as long as a user is connected
+    to the container. A 12 hour timeout is set to kill the container in case an
+    orphaned process.
+    """
+    ecs = boto3.client("ecs")
+    container = ecs.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
+    wait_for_connect = 60
+    max_lifetime = 12 * 60 * 60  # 12 hours
     command = [
         "/bin/sh",
         "-c",
-        'STOP=$(($(date +%s)+43200)); sleep 60; while true; do  PROCS="$(ls /proc | grep [0-9] | wc -l)"; test "$PROCS" -lt "6" && exit; test "$STOP" -lt "$(date +%s)" && exit 1; sleep 30; done',
+        "; ".join(
+            [
+                # Get initial proc count
+                'EXPECTED_PROCS="$(ls -1 /proc | grep -c [0-9])"',
+                f"STOP=$(($(date +%s)+{max_lifetime}))",
+                # Give user time to connect
+                f"sleep {wait_for_connect}",
+                # Loop until procs are less than or equal to initial count
+                # As long as a user has a shell open, this task will keep running
+                "while true",
+                'do PROCS="$(ls -1 /proc | grep -c [0-9])"',
+                'echo "$PROCS $EXPECTED_PROCS"',
+                'test "$PROCS" -le "$EXPECTED_PROCS" && exit',
+                # Timeout if exceeds max lifetime
+                'test "$STOP" -lt "$(date +%s)" && exit 1',
+                "sleep 30",
+                "done",
+            ]
+        ),
     ]
-    ecs = boto3.client("ecs")
-    if not container:
-        container = ecs.describe_task_definition(taskDefinition=task_defn)[
-            "taskDefinition"
-        ]["containerDefinitions"][0]["name"]
 
     return ecs.run_task(
         taskDefinition=task_defn,
         cluster=cluster,
         startedBy=f"paaws-cli/shell/{getuser()}",
-        overrides={"containerOverrides": [{"name": container, "command": command}]},
+        overrides={
+            "containerOverrides": [
+                {
+                    "name": container["containerDefinitions"][0]["name"],
+                    "command": command,
+                }
+            ]
+        },
     )["tasks"][0]
 
 
