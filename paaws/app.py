@@ -26,6 +26,7 @@ def requires_appname(func):
 class Application:
     name: str
     cluster: str
+    codebuild_project: str
     log_group: str
     parameter_prefix: str
     shell_service: str
@@ -55,7 +56,9 @@ class Application:
             "cluster": self.name,
             "log_group": self.name,
             "shell_service": f"{self.name}-debug",
+            "shell_command": "bash -l",
             "parameter_prefix": f"/{self.name}",
+            "codebuild_project": self.name,
             "tags": [],
         }
         defaults.update(self._load_config())
@@ -103,6 +106,14 @@ class Application:
         except IndexError:
             raise Exception(f"Shell service '{app.shell_service}' does not exist")
         return service["taskDefinition"]
+
+    @requires_appname
+    def get_builds(self, limit=20):
+        codebuild = boto3.client("codebuild")
+        return codebuild.batch_get_builds(
+            ids=codebuild.list_builds_for_project(projectName=self.codebuild_project)[
+                    "ids"][:limit]
+        )["builds"]
 
 
 app = Application()

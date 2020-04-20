@@ -63,7 +63,6 @@ def run_task_until_disconnect(cluster: str, task_defn: str) -> dict:
                 # As long as a user has a shell open, this task will keep running
                 "while true",
                 'do PROCS="$(ls -1 /proc | grep -c [0-9])"',
-                'echo "$PROCS $EXPECTED_PROCS"',
                 'test "$PROCS" -le "$EXPECTED_PROCS" && exit',
                 # Timeout if exceeds max lifetime
                 'test "$STOP" -lt "$(date +%s)" && exit 1',

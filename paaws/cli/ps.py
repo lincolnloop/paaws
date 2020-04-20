@@ -30,9 +30,6 @@ def ps():
         defn = task_definitions[tasks[0]["taskDefinitionArn"]]
         print(colored("===", attrs=["dark"]), colored(group, "green"))
         for t in tasks:
-            started_ago = timeago.format(
-                t["startedAt"], datetime.datetime.now(datetime.timezone.utc)
-            )
             task_line = [
                 t["taskArn"].split(":")[-1],
                 " ",
@@ -47,9 +44,10 @@ def ps():
                 colored(")", "white"),
                 ": ",
                 t["lastStatus"].lower(),
-                " ",
-                formatted_time_ago(t["startedAt"]),
+                " "
             ]
+            if "startedAt" in t:
+                task_line.append(formatted_time_ago(t["startedAt"]))
             print("".join(task_line))
             for c in t["containers"]:
                 try:

@@ -30,7 +30,6 @@ def shell_to_task(task: dict, cluster: str, command: str = "bash -l") -> NoRetur
         "--document-name",
         "AWS-StartInteractiveCommand",
         "--parameters",
-        # TODO: remove sudo
         # TODO: check if fargate and remove docker
         f"command=sudo docker exec -it $(sudo docker ps -q -f label=com.amazonaws.ecs.task-arn={arn}) {command}",
     )
@@ -53,4 +52,4 @@ def shell():
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()
     wait_for_task(app.cluster, task_arn, "running container", status="tasks_running")
-    shell_to_task(task, app.cluster)
+    shell_to_task(task, app.cluster, app.shell_command)

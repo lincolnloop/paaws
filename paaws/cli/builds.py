@@ -50,10 +50,7 @@ def print_build(build: dict) -> None:
 
 
 def find_build_by_number(build_number: int, limit: int = 20) -> dict:
-    codebuild = boto3.client("codebuild")
-    builds = codebuild.batch_get_builds(
-        ids=codebuild.list_builds_for_project(projectName=app.name)["ids"][:limit]
-    )["builds"]
+    builds = app.get_builds(limit=limit)
     try:
         return [b for b in builds if b["buildNumber"] == int(build_number)][0]
     except IndexError:
@@ -69,13 +66,7 @@ def builds():
 @builds.command()
 def list():
     """List most recent builds"""
-    codebuild = boto3.client("codebuild")
-    # TODO: variable project name
-    builds = codebuild.batch_get_builds(
-        ids=codebuild.list_builds_for_project(projectName=app.name)["ids"][:5]
-    )["builds"]
-
-    for b in builds:
+    for b in app.get_builds(limit=5):
         print_build(b)
 
 
@@ -89,7 +80,7 @@ def view(id):
 
 @builds.command()
 @click.argument("id")
-@click.argument("log_type", type=click.Choice(["build", "test"]), default="test")
+@click.argument("log_type", type=click.Choice(["build", "test", "release"]), default="test")
 def logs(id, log_type):
     """View build or test logs for a specific build"""
     pager(get_artifact(find_build_by_number(id), f"{log_type}.log"))
