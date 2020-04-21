@@ -59,6 +59,7 @@ class Application:
             "shell_command": "bash -l",
             "parameter_prefix": f"/{self.name}",
             "codebuild_project": self.name,
+            "chamber_compatible_config": False,
             "tags": [],
         }
         defaults.update(self._load_config())

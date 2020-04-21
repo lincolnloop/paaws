@@ -21,8 +21,9 @@ def load_parameters(path, next_token=None) -> Dict[str, str]:
     if next_token:
         kwargs.update({"NextToken": next_token})
     results = ssm.get_parameters_by_path(**kwargs)
+    transform_key = lambda k: k.upper() if app.chamber_compatible_config else k
     parameters = {
-        p["Name"][len(path) :].upper(): p["Value"] for p in results["Parameters"]
+        transform_key(p["Name"][len(path) :]): p["Value"] for p in results["Parameters"]
     }
     if "NextToken" in results:
         parameters.update(load_parameters(path, results["NextToken"]))
@@ -58,7 +59,9 @@ def list_() -> None:
 def get(key: str) -> None:
     """Get the value for a variable"""
     ssm = boto3.client("ssm")
-    name = "/".join([app.parameter_prefix, key.lower()])
+    if app.chamber_compatible_config:
+        key = key.lower()
+    name = "/".join([app.parameter_prefix, key])
     print(ssm.get_parameter(Name=name, WithDecryption=True)["Parameter"]["Value"])
 
 
@@ -68,8 +71,13 @@ def set(key_val: str) -> None:
     """Get the value for a variable"""
     key, val = key_val.split("=", 1)
     ssm = boto3.client("ssm")
-    name = "/".join([app.parameter_prefix, key.lower()])
-    with halo_success(text=f"setting parameter {key.upper()}"):
+    if app.chamber_compatible_config:
+        key_store = key.lower()
+        key_display = key.upper()
+    else:
+        key_store = key_display = key
+    name = "/".join([app.parameter_prefix, key_store])
+    with halo_success(text=f"setting parameter {key_display}"):
         ssm.put_parameter(Name=name, Value=val, Type="SecureString", Overwrite=True)
 
 
@@ -78,6 +86,11 @@ def set(key_val: str) -> None:
 def unset(key: str) -> None:
     """Unset (delete) a variable"""
     ssm = boto3.client("ssm")
-    name = "/".join([app.parameter_prefix, key.lower()])
-    with halo_success(text=f"deleting parameter {key.upper()}"):
+    if app.chamber_compatible_config:
+        key_store = key.lower()
+        key_display = key.upper()
+    else:
+        key_store = key_display = key
+    name = "/".join([app.parameter_prefix, key_store])
+    with halo_success(text=f"deleting parameter {key_display}"):
         ssm.delete_parameter(Name=name)
