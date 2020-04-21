@@ -114,7 +114,8 @@ class Application:
         codebuild = boto3.client("codebuild")
         return codebuild.batch_get_builds(
             ids=codebuild.list_builds_for_project(projectName=self.codebuild_project)[
-                    "ids"][:limit]
+                "ids"
+            ][:limit]
         )["builds"]
 
 
