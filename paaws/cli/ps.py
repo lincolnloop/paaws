@@ -1,14 +1,20 @@
-import datetime
 from collections import defaultdict
 
 import boto3
 import click
 from halo import Halo
 from termcolor import colored, cprint
-import timeago
 
 from ..app import app
 from ..utils import formatted_time_ago
+
+
+def task_id(task_detail: dict) -> str:
+    tags = {t["key"]: t["value"] for t in task_detail["tags"]}
+    try:
+        return tags["paaws:buildNumber"]
+    except KeyError:
+        return task_detail["arn"].split("/")[-1]
 
 
 @click.command()
@@ -31,7 +37,7 @@ def ps():
         print(colored("===", attrs=["dark"]), colored(group, "green"))
         for t in tasks:
             task_line = [
-                t["taskArn"].split(":")[-1],
+                task_id(t),
                 " ",
                 colored("(", "white"),
                 colored(
@@ -44,7 +50,7 @@ def ps():
                 colored(")", "white"),
                 ": ",
                 t["lastStatus"].lower(),
-                " "
+                " ",
             ]
             if "startedAt" in t:
                 task_line.append(formatted_time_ago(t["startedAt"]))

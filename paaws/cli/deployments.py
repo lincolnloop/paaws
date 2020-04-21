@@ -1,5 +1,6 @@
 import time
 
+import boto3
 import click
 from blessed import Terminal
 from halo import Halo
@@ -9,13 +10,24 @@ from ..app import app
 from ..utils import formatted_time_ago
 
 
+def deployment_id(detail: dict) -> str:
+    ecs = boto3.client("ecs")
+    resp = ecs.describe_task_definition(
+        taskDefinition=detail["taskDefinition"], include=["TAGS"]
+    )
+    try:
+        return [t for t in resp["tags"] if t["key"] == "paaws:buildNumber"][0]["value"]
+    except IndexError:
+        return detail["taskDefinition"].split("/")[-1]
+
+
 def _deployment_line(deployment: dict) -> str:
     color_map = {
         "PRIMARY": "green",
         "ACTIVE": "yellow",
     }
     line = [
-        deployment["id"].split("/")[-1],
+        deployment_id(deployment),
         ": ",
         colored(deployment["status"].lower(), color_map.get(deployment["status"], "")),
         colored(" tasks:{runningCount}".format(**deployment), "white"),
