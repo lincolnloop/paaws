@@ -15,17 +15,16 @@ from halo import Halo
 
 def s3_location(app_name: str, prefix: str) -> (str, str):
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    bucket = f"wi-{app_name}-dbdumps"
-    object_name = f"{prefix}{timestamp}-{getpass.getuser()}.sql.gz"
-    return bucket, object_name
+    object_name = f"{prefix}{timestamp}-{getpass.getuser()}.dump"
+    return app.db_utils_bucket, object_name
 
 
 def run_task(app_name: str, definition: str, command: List[str]) -> str:
     # Fetch the default runTask arguments from parameter store
     ssm = boto3.client("ssm")
     run_task_kwargs = json.loads(
-        ssm.get_parameter(Name=f"{app_name}-ecs-config")["Parameter"]["Value"]
-    )["base_run_task"]
+        ssm.get_parameter(Name=f"/paaws/ecs/{app_name}")["Parameter"]["Value"]
+    )["run_task_args"]
 
     run_task_kwargs["overrides"] = {
         "containerOverrides": [{"name": "app", "command": command}]
@@ -69,8 +68,8 @@ def dump():
         f"{app.name}-dbutils-dump",
         ["dump-to-s3.sh", f"s3://{bucket}/{object_name}"],
     )
-    wait_for_task(app.name, task_arn, "dumping database")
-    download_file(bucket, object_name, f"{app.name}.sql.gz")
+    wait_for_task(app.cluster, task_arn, "dumping database")
+    download_file(bucket, object_name, f"{app.name}.dump")
 
 
 @db.command()
@@ -98,5 +97,5 @@ def shell():
     )
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()
-    wait_for_task(app.name, task_arn, "running container", status="tasks_running")
+    wait_for_task(app.cluster, task_arn, "running container", status="tasks_running")
     shell_to_task(task, app.cluster, command="entrypoint.sh psql")

@@ -59,6 +59,7 @@ class Application:
             "shell_command": "bash -l",
             "parameter_prefix": f"/{self.name}",
             "codebuild_project": self.name,
+            "db_utils_bucket": f"{self.name}-dbutils",
             "chamber_compatible_config": False,
             "tags": [],
         }
