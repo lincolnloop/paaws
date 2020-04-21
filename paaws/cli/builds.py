@@ -41,7 +41,7 @@ def print_build(build: dict) -> None:
     if "endTime" in build:
         print(indent(formatted_time_ago(build["endTime"]), 4 * " "))
     else:
-        print("")
+        print(indent("started " + formatted_time_ago(build["startTime"]), 4 * " "))
     s3 = boto3.client("s3")
     try:
         cprint(indent(get_artifact(build, "commit.txt"), 4 * " "))
@@ -80,7 +80,10 @@ def view(id):
 
 @builds.command()
 @click.argument("id")
-@click.argument("log_type", type=click.Choice(["build", "test", "release"]), default="test")
+@click.argument(
+    "log_type", type=click.Choice(["build", "test", "release"]), default="test"
+)
 def logs(id, log_type):
     """View build or test logs for a specific build"""
-    pager(get_artifact(find_build_by_number(id), f"{log_type}.log"))
+    with Halo(f"downloading {log_type} log", spinner="dots"):
+        print("\n" + get_artifact(find_build_by_number(id), f"{log_type}.log"))
