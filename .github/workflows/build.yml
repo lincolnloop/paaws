@@ -1,0 +1,43 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v1
+      with:
+        python-version: 3.6
+
+    - uses: actions/cache@v1
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install pre-requisites
+      run: python -m pip install --upgrade shiv pip
+
+    - name: Build zipapp
+      run: |
+          make paaws.pyz
+          sha256sum paaws.pyz
+
+      # Move to /tmp to avoid importing any Python from the cwd
+    - name: Smoke Test
+      run: |
+          pushd /tmp
+          $(dirs -l +1)/paaws.pyz --help
+
+    - name: Store Artifact
+      uses: actions/upload-artifact@v1
+      if: always()
+      with:
+        name: paaws
+        path: paaws.pyz

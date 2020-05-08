@@ -1,6 +1,34 @@
 # Paaws
 
-Paaws is an effort to build a PaaS on top of AWS.
+[![Build](https://github.com/lincolnloop/paaws/workflows/Build/badge.svg)](https://github.com/lincolnloop/paaws/actions?query=workflow%3ABuild)
+
+Paaws is **a CLI that makes AWS services feel more like a PaaS** such as [Heroku](https://www.heroku.com/) or [Dokku](http://dokku.viewdocs.io/dokku/). It is designed to work with:
+
+* [Elastic Container Service (ECS)](https://aws.amazon.com/ecs/) for running the application process(es)
+* [Parameter Store](https://aws.amazon.com/systems-manager/features/#Parameter_Store) for environment variable/secret storage
+* [Cloudwatch Logs](https://aws.amazon.com/cloudwatch/features/) for logging
+* [Session Manager](https://aws.amazon.com/systems-manager/features/#Session_Manager) for shell access
+* [Codebuild](https://aws.amazon.com/codebuild/) for building images and testing
+
+
+Paaws was created by [Lincoln Loop](https://lincolnloop.com) to help developers manage and monitor services running on AWS without needing deep knowledge of the AWS itself. We are currently using it manage services in production.
+
+Internally we have created a Terraform module to spin up services using [Buildpacks](https://buildpacks.io/) and a [Procfile](https://devcenter.heroku.com/articles/procfile), allowing developers to run new applications on AWS with very little configuration. We hope to release this as a Terraform and/or Cloudformation module in the future. In the meantime, however, the CLI is designed to work with existing systems via some configuration stored in AWS' Parameter Store.
+
+If you're interested in commercial support for Paaws, please [contact us](https://lincolnloop.com/contact/).
+
+🚧 This is an early release and under active development. APIs and commands may change between releases.
+
+## Installation
+
+The CLI requires Python 3.6+. It can be installed via pip:
+
+```
+pip install paaws
+```
+
+Or you can download the most recent release from the [Releases](https://github.com/lincolnloop/paaws/releases) page and run it via `python3 paaws ...` or run `chmod +x paaws` and run it directly, `./paaws ...`.  
+
 
 ## Goals
 
@@ -62,7 +90,7 @@ All Tasks run within a Cluster which serves as both a logical and security bound
 
 A set of key/value strings stored with or without encryption. Usually used to inject environment variables into Tasks. Keys use a path-style notation and permissions can include a wildcard, so often keys are defined as `/{application_name}/{key}` and permissions are granted on `/{application_name}/*`.
 
-### Paaws
+## Paaws
 
 ### Application
 
@@ -72,48 +100,42 @@ An application consists of all the necessary AWS Resources to run. This is typic
 
 The resources associated with an Application are determined via a "sane" set of defaults which can be overridden via configuration in the Parameter Store.
 
-#### Defaults
-
-Paaws keys everything off the application name ("appname") by default.
-
-* Cluster: `[appname]`
-* Log Group: `[appname]`
-* Parameter prefix: `/[appname]`
-* Services & Tasks: anything running in cluster
-* Interactive app shell: Creates a task from `[appname]-debug` Service defintion
-* Database tasks: Tasks named `[appname]-dbutils-load`, `[appname]-dbutils-dump`, `[appname]-dbutils-shell`
-* Database connection: in parameter store at `[prefix]/database_url`
-
-#### Overrides
-
-You can override the defaults by creating a parameter store key named `/paaws/apps/{appname}` with a JSON string in it containing any of the following keys:
-
-* `cluster`
-* `log_group`
-* `parameter_prefix`
-* `tags`
-* `shell_service`
-
-The `tags` value can be used to filter the set of Services and Tasks displayed from the Cluster. Keep in mind this is only a visual separation. IAM permissions are handled at the Cluster level, so no additional security is provided here.
-
-Here is an example override from `/paaws/apps/ll-prod`:
+The default configuration is generated via the provided app name. If `my-app` were your app name, the configuration would be:
 
 ```json
 {
-  "log_group": "/ecs/default/ll-prod",
-  "cluster": "default",
-  "tags": [
-    {
-      "key": "Application",
-      "value": "lincolnloop"
-    },
-    {
-      "key": "Environment",
-      "value": "prod"
-    }
-  ],
-  "shell_service": "ll-prod-web"
+  "cluster": {"name": "my-app"},
+  "log_group": {"name": "my-app"},
+  "parameter_store": {
+      "prefix": "/my-app",
+      "chamber_compatible": false
+  },
+  "codebuild_project": {"name": "my-app"},
+  "shell": {
+      "task_amily": "my-app-shell",
+      "command": "bash -l"
+  },
+  "db_utils": {
+      "shell_task_family": "my-app-dbutils-shell",
+      "dumpload_task_family": "my-app-dbutils-dumpload",
+      "s3_bucket": "myapp-dbutils"
+  },
+  "tags": []
 }
+```
+
+The `tags` value can be used to filter the set of Services and Tasks displayed from the Cluster. Keep in mind this is only a visual separation. IAM permissions are handled at the Cluster level, so no additional security is provided here.
+
+#### Overrides
+
+You can override the defaults by creating a parameter store key named `/paaws/apps/{appname}/settings` with a JSON string in it. An example using the AWS CLI:
+
+```
+$ aws ssm put-parameter \
+  --name /paaws/apps/$APPNAME/settings \
+  --value '{"cluster": {"name": "default"}, "log_group": {"name": "/aws/ecs/default/my-app"}}' \
+  --type String \
+  --overwrite
 ```
 
 ## Available Commands
@@ -164,7 +186,7 @@ Show running containers
 
 Open an interactive shell in the remote environment
 
-## Future Ideas
 
-* Web interface
-* Convert CLI to Go for easier distribution
+## Thanks
+
+Paaws is the result of a few years of learning while working with clients hosting applications on ECS. The Paaws CLI was born out of work we've been doing with [Wharton Interactive](https://interactive.wharton.upenn.edu/) and received their blessing to continue as an independent open source project. Thanks Sarah! 🎉
