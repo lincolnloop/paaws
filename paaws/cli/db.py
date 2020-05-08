@@ -16,15 +16,20 @@ from halo import Halo
 def s3_location(app_name: str, prefix: str) -> (str, str):
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     object_name = f"{prefix}{timestamp}-{getpass.getuser()}.dump"
-    return app.db_utils_bucket, object_name
+    return app.settings["db_utils"]["s3_bucket"], object_name
 
 
 def run_task(app_name: str, definition: str, command: List[str]) -> str:
     # Fetch the default runTask arguments from parameter store
-    ssm = boto3.client("ssm")
-    run_task_kwargs = json.loads(
-        ssm.get_parameter(Name=f"/paaws/ecs/{app_name}")["Parameter"]["Value"]
-    )["run_task_args"]
+    try:
+        ssm = boto3.client("ssm")
+        run_task_kwargs = json.loads(
+            ssm.get_parameter(Name=f"/paaws/apps/{app_name}/ecs-config")["Parameter"][
+                "Value"
+            ]
+        )["run_task_args"]
+    except ssm.exceptions.ParameterNotFound:
+        run_task_kwargs = {"cluster": app.cluster}
 
     run_task_kwargs["overrides"] = {
         "containerOverrides": [{"name": "app", "command": command}]
@@ -63,9 +68,11 @@ def dump():
     Dump database to local file
     """
     bucket, object_name = s3_location(app.name, "dumps/")
+    print(json.dumps(app.settings, indent=2))
+    print(app.settings["db_utils"]["dumpload_task_family"])
     task_arn = run_task(
         app.name,
-        f"{app.name}-dbutils-dump",
+        app.settings["db_utils"]["dumpload_task_family"],
         ["dump-to-s3.sh", f"s3://{bucket}/{object_name}"],
     )
     wait_for_task(app.cluster, task_arn, "dumping database")
@@ -80,7 +87,7 @@ def load(local_file: str):
     upload_file(local_file, bucket, object_name)
     task_arn = run_task(
         app.name,
-        f"{app.name}-dbutils-load",
+        app.settings["db_utils"]["dumpload_task_family"],
         ["load-from-s3.sh", f"s3://{bucket}/{object_name}"],
     )
     wait_for_task(app.name, task_arn, "loading database")
@@ -93,7 +100,7 @@ def shell():
     """
     ecs = boto3.client("ecs")
     task = run_task_until_disconnect(
-        cluster=app.cluster, task_defn=f"{app.name}-dbutils-shell"
+        cluster=app.cluster, task_defn=app.settings["db_utils"]["shell_task_family"]
     )
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()

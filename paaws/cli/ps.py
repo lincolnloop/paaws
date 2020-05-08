@@ -14,7 +14,7 @@ def task_id(task_detail: dict) -> str:
     try:
         return tags["paaws:buildNumber"]
     except KeyError:
-        return task_detail["arn"].split("/")[-1]
+        return task_detail["taskArn"].split("/")[-1]
 
 
 @click.command()

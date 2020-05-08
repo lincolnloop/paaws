@@ -48,8 +48,8 @@ def shell():
             ),
         )
         exit(1)
-    task = run_task_until_disconnect(app.cluster, app.get_shell_task_definition())
+    task = run_task_until_disconnect(app.cluster, app.settings["shell"]["task_family"])
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()
     wait_for_task(app.cluster, task_arn, "running container", status="tasks_running")
-    shell_to_task(task, app.cluster, app.shell_command)
+    shell_to_task(task, app.cluster, app.settings["shell"]["command"])

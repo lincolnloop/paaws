@@ -23,6 +23,21 @@ def requires_appname(func):
     return wrapper
 
 
+def merge(source: dict, destination: dict) -> dict:
+    """
+    Perform a "deep" merge of the two dictionaries
+    """
+    for key, value in source.items():
+        if isinstance(value, dict):
+            # get node or create one
+            node = destination.setdefault(key, {})
+            merge(value, node)
+        else:
+            destination[key] = value
+
+    return destination
+
+
 class Application:
     name: str
     cluster: str
@@ -32,9 +47,9 @@ class Application:
     shell_service: str
     tags: List[dict]
 
-    def _load_config(self) -> dict:
+    def _load_config(self, name: str) -> dict:
         """Load any configuration for app from parameter store"""
-        config_parameter_name = f"/paaws/apps/{self.name}"
+        config_parameter_name = f"/paaws/apps/{self.name}/{name}"
         ssm = boto3.client("ssm")
 
         try:
@@ -48,29 +63,50 @@ class Application:
                 pass
         return {}
 
-    def _define_resources(self) -> None:
+    def _initialize_settings(self) -> None:
         """Set attributes for resources on this app"""
         if not self.name:
             raise NoApplicationDefined()
-        defaults = {
-            "cluster": self.name,
-            "log_group": self.name,
-            "shell_service": f"{self.name}-debug",
-            "shell_command": "bash -l",
-            "parameter_prefix": f"/{self.name}",
-            "codebuild_project": self.name,
-            "db_utils_bucket": f"{self.name}-dbutils",
-            "chamber_compatible_config": False,
+        default_settings = {
+            "cluster": {"name": self.name},
+            "log_group": {"name": self.name},
+            "parameter_store": {"prefix": f"/{self.name}", "chamber_compatible": False},
+            "codebuild_project": {"name": self.name},
+            "shell": {"task_family": f"{self.name}-shell", "command": "bash -l",},
+            "db_utils": {
+                "shell_task_family": f"{self.name}-dbutils-shell",
+                "dumpload_task_family": f"{self.name}-dbutils-dumpload",
+                "s3_bucket": f"{self.name}-dbutils",
+            },
             "tags": [],
         }
-        defaults.update(self._load_config())
-        for k, v in defaults.items():
-            setattr(self, k, v)
+
+        self.settings = merge(self._load_config("settings"), default_settings)
 
     def setup(self, name: str) -> None:
         """Update resources when name is set"""
         self.name = name
-        self._define_resources()
+        self._initialize_settings()
+
+    @property
+    def cluster(self) -> str:
+        return self.settings["cluster"]["name"]
+
+    @property
+    def tags(self) -> List[dict]:
+        return self.settings["tags"]
+
+    @property
+    def log_group(self) -> str:
+        return self.settings["log_group"]["name"]
+
+    @property
+    def parameter_prefix(self) -> str:
+        return self.settings["parameter_store"]["prefix"]
+
+    @property
+    def chamber_compatible_config(self) -> bool:
+        return self.settings["parameter_store"]["chamber_compatible"]
 
     @requires_appname
     def get_tasks(self) -> List[dict]:
@@ -89,33 +125,22 @@ class Application:
     def get_services(self) -> List[dict]:
         """List of service descriptions for app"""
         ecs = boto3.client("ecs")
-        service_arns = ecs.list_services(cluster=app.cluster)["serviceArns"]
+        service_arns = ecs.list_services(cluster=self.cluster)["serviceArns"]
         return [
             s
             for s in ecs.describe_services(
-                cluster=app.cluster, services=service_arns, include=["TAGS"]
+                cluster=self.cluster, services=service_arns, include=["TAGS"]
             )["services"]
-            if tags_match(s.get("tags", []), app.tags)
+            if tags_match(s.get("tags", []), self.tags)
         ]
-
-    @requires_appname
-    def get_shell_task_definition(self) -> dict:
-        """Get task definition from shell service"""
-        try:
-            service = [
-                s for s in self.get_services() if s["serviceName"] == self.shell_service
-            ][0]
-        except IndexError:
-            raise Exception(f"Shell service '{app.shell_service}' does not exist")
-        return service["taskDefinition"]
 
     @requires_appname
     def get_builds(self, limit=20):
         codebuild = boto3.client("codebuild")
         return codebuild.batch_get_builds(
-            ids=codebuild.list_builds_for_project(projectName=self.codebuild_project)[
-                "ids"
-            ][:limit]
+            ids=codebuild.list_builds_for_project(
+                projectName=self.settings["codebuild_project"]["name"]
+            )["ids"][:limit]
         )["builds"]
 
 

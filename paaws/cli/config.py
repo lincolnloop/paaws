@@ -44,7 +44,7 @@ def list_() -> None:
         colored(f"{app.name} Config Vars", "white", attrs=["bold"]),
     )
     parameters = load_parameters(app.parameter_prefix)
-    cell_width = max([len(k) for k in parameters.keys()])
+    cell_width = max([len(k) for k in parameters.keys()]) + 1
     for k in sorted(load_parameters(f"/{app.name}").keys()):
         print(
             colored(

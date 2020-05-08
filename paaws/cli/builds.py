@@ -1,4 +1,4 @@
-from pydoc import pager
+import logging
 from textwrap import indent
 
 import boto3
@@ -9,8 +9,13 @@ from termcolor import cprint, colored
 from ..app import app
 from ..utils import formatted_time_ago
 
+log = logging.getLogger(__name__)
+
 
 def get_artifact(build: dict, name: str) -> str:
+    if not build["artifacts"]["location"]:
+        log.debug("No artifacts stored by Codebuild. Skipping download of %s", name)
+        return ""
     artifact_arn = build["artifacts"]["location"]
     parts = ":".join(artifact_arn.split(":")[5:])
     bucket, key_prefix = parts.split("/", 1)
