@@ -10,6 +10,7 @@ Paaws is **a CLI that makes AWS services feel more like a PaaS** such as [Heroku
 * [Session Manager](https://aws.amazon.com/systems-manager/features/#Session_Manager) for shell access
 * [Codebuild](https://aws.amazon.com/codebuild/) for building images and testing
 
+![screencast](https://cldup.com/GXYFD6bgyr.svg)
 
 Paaws was created by [Lincoln Loop](https://lincolnloop.com) to help developers manage and monitor services running on AWS without needing deep knowledge of the AWS itself. We are currently using it manage services in production.
 
