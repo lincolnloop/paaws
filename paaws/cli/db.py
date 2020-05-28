@@ -102,6 +102,8 @@ def shell():
     task = run_task_until_disconnect(
         cluster=app.cluster, task_defn=app.settings["db_utils"]["shell_task_family"]
     )
+    if task is None:
+        exit(1)
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()
     wait_for_task(app.cluster, task_arn, "running container", status="tasks_running")

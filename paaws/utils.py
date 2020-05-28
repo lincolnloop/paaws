@@ -39,14 +39,14 @@ def wait_for_task(
     spinner.succeed()
 
 
-def run_task_until_disconnect(cluster: str, task_defn: str) -> dict:
+def run_task_until_disconnect(cluster: str, task_defn: str) -> Optional[dict]:
     """
     Create a task that with a shell command that runs as long as a user is connected
     to the container. A 12 hour timeout is set to kill the container in case an
     orphaned process.
     """
     ecs = boto3.client("ecs")
-    container = ecs.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
+    task_desc = ecs.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
     wait_for_connect = 60
     max_lifetime = 12 * 60 * 60  # 12 hours
     command = [
@@ -72,19 +72,26 @@ def run_task_until_disconnect(cluster: str, task_defn: str) -> dict:
         ),
     ]
 
-    return ecs.run_task(
-        taskDefinition=task_defn,
+    resp = ecs.run_task(
+        taskDefinition=task_desc["taskDefinitionArn"],
         cluster=cluster,
         startedBy=f"paaws-cli/shell/{getuser()}",
         overrides={
             "containerOverrides": [
                 {
-                    "name": container["containerDefinitions"][0]["name"],
+                    "name": task_desc["containerDefinitions"][0]["name"],
                     "command": command,
                 }
             ]
         },
-    )["tasks"][0]
+    )
+    try:
+        return resp["tasks"][0]
+    except IndexError:
+        Halo("Task failed to start").fail()
+        print(f"Response:\n\t{resp}")
+        return None
+
 
 
 def formatted_time_ago(dt: datetime) -> str:
