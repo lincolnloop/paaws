@@ -68,7 +68,7 @@ def get(key: str) -> None:
 @config.command()
 @click.argument("key_val")
 def set(key_val: str) -> None:
-    """Get the value for a variable"""
+    """Set the value for a variable using KEY=value format"""
     key, val = key_val.split("=", 1)
     ssm = boto3.client("ssm")
     if app.chamber_compatible_config:
