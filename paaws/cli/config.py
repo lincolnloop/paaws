@@ -1,5 +1,3 @@
-from typing import Dict
-
 from halo import Halo
 
 import boto3
@@ -7,27 +5,7 @@ import click
 from termcolor import colored
 
 from ..app import app
-from ..utils import halo_success
-
-
-@Halo(text="fetching parameters", spinner="dots")
-def load_parameters(path, next_token=None) -> Dict[str, str]:
-    """Fetch values from AWS Parameter Store"""
-    ssm = boto3.client("ssm")
-    # allow lookups when IAM only allows {arn}/*
-    if not path.endswith("/"):
-        path += "/"
-    kwargs = {"Path": path, "WithDecryption": True}
-    if next_token:
-        kwargs.update({"NextToken": next_token})
-    results = ssm.get_parameters_by_path(**kwargs)
-    transform_key = lambda k: k.upper() if app.chamber_compatible_config else k
-    parameters = {
-        transform_key(p["Name"][len(path) :]): p["Value"] for p in results["Parameters"]
-    }
-    if "NextToken" in results:
-        parameters.update(load_parameters(path, results["NextToken"]))
-    return parameters
+from ..utils import halo_success, load_parameters
 
 
 @click.group()
@@ -43,7 +21,10 @@ def list_() -> None:
         colored("===", attrs=["dark"]),
         colored(f"{app.name} Config Vars", "white", attrs=["bold"]),
     )
-    parameters = load_parameters(app.parameter_prefix)
+    with Halo(text="fetching parameters", spinner="dots"):
+        parameters = load_parameters(app.parameter_prefix)
+        if app.chamber_compatible_config:
+            parameters = {k.upper(): v for k, v in parameters.items()}
     cell_width = max([len(k) for k in parameters.keys()]) + 1
     for k in sorted(load_parameters(f"/{app.name}").keys()):
         print(

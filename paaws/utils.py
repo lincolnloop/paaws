@@ -1,7 +1,7 @@
 import datetime
 from getpass import getuser
 from contextlib import contextmanager
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import boto3
 import timeago
@@ -93,8 +93,23 @@ def run_task_until_disconnect(cluster: str, task_defn: str) -> Optional[dict]:
         return None
 
 
-
 def formatted_time_ago(dt: datetime) -> str:
     ago = timeago.format(dt, datetime.datetime.now(datetime.timezone.utc))
     full = dt.isoformat(timespec="seconds")
     return colored(f"{full} ~ {ago}", attrs=["dark"])
+
+
+def load_parameters(path, next_token=None) -> Dict[str, str]:
+    """Fetch values from AWS Parameter Store"""
+    ssm = boto3.client("ssm")
+    # allow lookups when IAM only allows {arn}/*
+    if not path.endswith("/"):
+        path += "/"
+    kwargs = {"Path": path, "WithDecryption": True}
+    if next_token:
+        kwargs.update({"NextToken": next_token})
+    results = ssm.get_parameters_by_path(**kwargs)
+    parameters = {p["Name"][len(path) :]: p["Value"] for p in results["Parameters"]}
+    if "NextToken" in results:
+        parameters.update(load_parameters(path, results["NextToken"]))
+    return parameters

@@ -6,6 +6,7 @@ from halo import Halo
 from termcolor import colored, cprint
 
 from ..app import app
+from ..formatting import print_header
 from ..utils import formatted_time_ago
 
 
@@ -34,7 +35,7 @@ def ps():
     for group in sorted(tasks_by_group.keys()):
         tasks = tasks_by_group[group]
         defn = task_definitions[tasks[0]["taskDefinitionArn"]]
-        print(colored("===", attrs=["dark"]), colored(group, "green"))
+        print_header(group, color="green")
         for t in tasks:
             task_line = [
                 task_id(t),

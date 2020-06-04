@@ -135,6 +135,15 @@ class Application:
         ]
 
     @requires_appname
+    def current_status(self):
+        ssm = boto3.client("ssm")
+        return json.loads(
+            ssm.get_parameter(Name=f"/paaws/apps/{self.name}/current")["Parameter"][
+                "Value"
+            ]
+        )
+
+    @requires_appname
     def get_builds(self, limit=20):
         codebuild = boto3.client("codebuild")
         return codebuild.batch_get_builds(
