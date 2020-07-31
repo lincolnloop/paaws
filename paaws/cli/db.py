@@ -80,13 +80,17 @@ def dump():
 @db.command()
 @click.argument("local_file")
 def load(local_file: str):
-    """Replace remote database with local dump"""
-    bucket, object_name = s3_location(app.name, "uploads/")
-    upload_file(local_file, bucket, object_name)
+    """Replace remote database with dump from local filesystem or S3 (s3://...)"""
+    if local_file.startswith("s3://"):
+        remote_file = local_file
+    else:
+        bucket, object_name = s3_location(app.name, "uploads/")
+        upload_file(local_file, bucket, object_name)
+        remote_file = f"s3://{bucket}/{object_name}"
     task_arn = run_task(
         app.name,
         app.settings["dbutils"]["dumpload_task_family"],
-        ["load-from-s3.sh", f"s3://{bucket}/{object_name}"],
+        ["load-from-s3.sh", remote_file],
     )
     wait_for_task(app.cluster, task_arn, "loading database")
 
