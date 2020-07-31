@@ -27,7 +27,7 @@ def run_task(app_name: str, definition: str, command: List[str]) -> str:
             ssm.get_parameter(Name=f"/paaws/apps/{app_name}/ecs-config")["Parameter"][
                 "Value"
             ]
-        )["run_task_args"]
+        )["run_task_args_fargate"]
     except ssm.exceptions.ParameterNotFound:
         run_task_kwargs = {"cluster": app.cluster}
 
@@ -72,7 +72,7 @@ def dump():
     print(app.settings["db_utils"]["dumpload_task_family"])
     task_arn = run_task(
         app.name,
-        app.settings["db_utils"]["dumpload_task_family"],
+        app.settings["dbutils"]["dumpload_task_family"],
         ["dump-to-s3.sh", f"s3://{bucket}/{object_name}"],
     )
     wait_for_task(app.cluster, task_arn, "dumping database")
@@ -87,10 +87,10 @@ def load(local_file: str):
     upload_file(local_file, bucket, object_name)
     task_arn = run_task(
         app.name,
-        app.settings["db_utils"]["dumpload_task_family"],
+        app.settings["dbutils"]["dumpload_task_family"],
         ["load-from-s3.sh", f"s3://{bucket}/{object_name}"],
     )
-    wait_for_task(app.name, task_arn, "loading database")
+    wait_for_task(app.cluster, task_arn, "loading database")
 
 
 @db.command()
@@ -100,7 +100,7 @@ def shell():
     """
     ecs = boto3.client("ecs")
     task = run_task_until_disconnect(
-        cluster=app.cluster, task_defn=app.settings["db_utils"]["shell_task_family"]
+        cluster=app.cluster, task_defn=app.settings["dbutils"]["shell_task_family"]
     )
     if task is None:
         exit(1)
