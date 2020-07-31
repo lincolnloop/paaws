@@ -68,8 +68,6 @@ def dump():
     Dump database to local file
     """
     bucket, object_name = s3_location(app.name, "dumps/")
-    print(json.dumps(app.settings, indent=2))
-    print(app.settings["db_utils"]["dumpload_task_family"])
     task_arn = run_task(
         app.name,
         app.settings["dbutils"]["dumpload_task_family"],
