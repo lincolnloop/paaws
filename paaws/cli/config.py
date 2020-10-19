@@ -45,7 +45,7 @@ def list_() -> None:
     )
     parameters = load_parameters(app.parameter_prefix)
     cell_width = max([len(k) for k in parameters.keys()]) + 1
-    for k in sorted(load_parameters(f"/{app.name}").keys()):
+    for k in sorted(parameters.keys()):
         print(
             colored(
                 "{0: <{width}}".format(k.lstrip("/") + ":", width=cell_width), "green"
