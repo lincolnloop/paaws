@@ -37,8 +37,8 @@ def shell_to_task(task: dict, cluster: str, command: str = "bash -l") -> NoRetur
             "AWS_ACCESS_KEY_ID": creds["AccessKeyId"],
             "AWS_SECRET_ACCESS_KEY": creds["SecretAccessKey"],
             "AWS_SESSION_TOKEN": creds["SessionToken"],
-            **os.environ
-        }
+            **os.environ,
+        },
     )
 
 
@@ -56,10 +56,14 @@ def shell():
         )
         exit(1)
     ecs = app.boto3_client("ecs")
-    task = run_task_until_disconnect(ecs, app._load_config("ecs-config"), app.settings["shell"]["task_family"])
+    task = run_task_until_disconnect(
+        ecs, app._load_config("ecs-config"), app.settings["shell"]["task_family"]
+    )
     if task is None:
         exit(1)
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()
-    wait_for_task(ecs, app.cluster, task_arn, "running container", status="tasks_running")
+    wait_for_task(
+        ecs, app.cluster, task_arn, "running container", status="tasks_running"
+    )
     shell_to_task(task, app.cluster, app.settings["shell"]["command"])

@@ -1,5 +1,5 @@
 import datetime
-from getpass import getuser
+import logging
 from contextlib import contextmanager
 from typing import List, Optional, NoReturn
 
@@ -7,6 +7,7 @@ import timeago
 from halo import Halo
 from termcolor import colored
 
+log = logging.getLogger(__name__)
 
 @contextmanager
 def halo_success(*args, **kwargs):
@@ -51,6 +52,7 @@ def run_task_until_disconnect(ecs_client, ecs_config: dict, task_defn: str) -> O
     to the container. A 12 hour timeout is set to kill the container in case an
     orphaned process.
     """
+    log.debug("Looking up description for task definition %s", task_defn)
     task_desc = ecs_client.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
     wait_for_connect = 60
     max_lifetime = 12 * 60 * 60  # 12 hours

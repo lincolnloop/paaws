@@ -12,10 +12,10 @@ import click
 from halo import Halo
 
 
-def s3_location(app_name: str, prefix: str) -> (str, str):
+def s3_location(prefix: str) -> (str, str):
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     object_name = f"{prefix}{timestamp}-{getpass.getuser()}.dump"
-    return app.settings["db_utils"]["s3_bucket"], object_name
+    return app.settings["dbutils"]["s3_bucket"], object_name
 
 
 def run_task(app_name: str, definition: str, command: List[str]) -> str:
@@ -66,7 +66,7 @@ def dump():
     """
     Dump database to local file
     """
-    bucket, object_name = s3_location(app.name, "dumps/")
+    bucket, object_name = s3_location("dumps/")
     task_arn = run_task(
         app.name,
         app.settings["dbutils"]["dumpload_task_family"],
@@ -83,7 +83,7 @@ def load(local_file: str):
     if local_file.startswith("s3://"):
         remote_file = local_file
     else:
-        bucket, object_name = s3_location(app.name, "uploads/")
+        bucket, object_name = s3_location("uploads/")
         upload_file(local_file, bucket, object_name)
         remote_file = f"s3://{bucket}/{object_name}"
     task_arn = run_task(
@@ -101,11 +101,15 @@ def shell():
     """
     ecs = app.boto3_client("ecs")
     task = run_task_until_disconnect(
-        ecs, app._load_config("ecs-config"), task_defn=app.settings["dbutils"]["shell_task_family"]
+        ecs,
+        app._load_config("ecs-config"),
+        task_defn=app.settings["dbutils"]["shell_task_family"],
     )
     if task is None:
         exit(1)
     task_arn = task["taskArn"]
     Halo(text=f"starting task {task_arn}").info()
-    wait_for_task(ecs, app.cluster, task_arn, "running container", status="tasks_running")
+    wait_for_task(
+        ecs, app.cluster, task_arn, "running container", status="tasks_running"
+    )
     shell_to_task(task, app.cluster, command="entrypoint.sh psql")

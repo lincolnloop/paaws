@@ -71,13 +71,16 @@ def login():
     user_info = get_user_info(oauth_token_resp["access_token"])
     success(f"Logged in as {user_info['email']}")
 
+
 @click.command()
 def whoami():
     print(get_email())
 
+
 def get_email():
     tokens, user_info = verify_auth()
     return user_info["email"]
+
 
 def get_user_info(access_token: str = None) -> dict:
     """Fetch user info from Auth0"""
@@ -115,6 +118,7 @@ def refresh_tokens():
     write_to_cache("tokens", oauth_token_resp)
     return oauth_token_resp
 
+
 def verify_auth() -> (dict, dict):
     try:
         tokens = read_from_cache("tokens")
@@ -126,6 +130,7 @@ def verify_auth() -> (dict, dict):
         user_info = get_user_info(tokens["access_token"])
     return tokens, user_info
 
+
 @lru_cache(maxsize=2)
 def get_credentials(app_name) -> dict:
     """Trade Auth0 token for AWS credentials"""
@@ -134,19 +139,27 @@ def get_credentials(app_name) -> dict:
     try:
         role_arn = user_info["https://paaws.lloop.us/aws_roles"][app_name]
     except KeyError:
-        log.debug("No access to %s. Refreshing tokens to check for new access.", app_name)
+        log.debug(
+            "No access to %s. Refreshing tokens to check for new access.", app_name
+        )
         tokens = refresh_tokens()
         user_info = get_user_info(tokens["access_token"])
         try:
             role_arn = user_info["https://paaws.lloop.us/aws_roles"][app_name]
         except KeyError:
             return fail(f"You don't have access to {app_name}")
-    log.debug("Fetching AWS credentials for %s", role_arn)
     sts = boto3.client("sts")
-    resp = sts.assume_role_with_web_identity(
+    kwargs = dict(
         RoleArn=role_arn,
         WebIdentityToken=tokens["id_token"],
         RoleSessionName=user_info["email"],
         DurationSeconds=900,
     )
-    return resp["Credentials"]
+    try:
+        log.debug("Fetching AWS credentials for %s", role_arn)
+        return sts.assume_role_with_web_identity(**kwargs)["Credentials"]
+    except sts.exceptions.ExpiredTokenException:
+        tokens = refresh_tokens()
+        kwargs["WebIdentityToken"] = tokens["id_token"]
+        log.debug("Fetching AWS credentials for %s", role_arn)
+        return sts.assume_role_with_web_identity(**kwargs)["Credentials"]
