@@ -1,7 +1,6 @@
 import logging
 from textwrap import indent
 
-import boto3
 import click
 from halo import Halo
 from termcolor import cprint, colored
@@ -19,7 +18,7 @@ def get_artifact(build: dict, name: str) -> str:
     artifact_arn = build["artifacts"]["location"]
     parts = ":".join(artifact_arn.split(":")[5:])
     bucket, key_prefix = parts.split("/", 1)
-    s3 = boto3.client("s3")
+    s3 = app.boto3_client("s3")
     body = s3.get_object(Bucket=bucket, Key=f"{key_prefix}/{name}")["Body"]
     return body.read().decode("utf-8")
 
@@ -47,7 +46,7 @@ def print_build(build: dict) -> None:
         print(indent(formatted_time_ago(build["endTime"]), 4 * " "))
     else:
         print(indent("started " + formatted_time_ago(build["startTime"]), 4 * " "))
-    s3 = boto3.client("s3")
+    s3 = app.boto3_client("s3")
     try:
         cprint(indent(get_artifact(build, "commit.txt"), 4 * " "))
     except s3.exceptions.NoSuchKey:

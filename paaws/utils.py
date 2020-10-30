@@ -1,9 +1,8 @@
 import datetime
 from getpass import getuser
 from contextlib import contextmanager
-from typing import List, Optional
+from typing import List, Optional, NoReturn
 
-import boto3
 import timeago
 from halo import Halo
 from termcolor import colored
@@ -18,16 +17,23 @@ def halo_success(*args, **kwargs):
         spinner.succeed()
 
 
+def fail(message: str) -> NoReturn:
+    Halo(text=message, text_color="red").fail()
+    exit(1)
+
+
+def success(message: str) -> None:
+    Halo(text=message, text_color="green").succeed()
+
 def tags_match(tags: List[dict], expected_tags: List[dict]) -> bool:
     """Is expected_tags a subset of tags?"""
     return all([tag in tags for tag in expected_tags])
 
 
 def wait_for_task(
-    cluster: str, arn: str, message: str = "running task", status: str = "tasks_stopped"
+    ecs, cluster: str, arn: str, message: str = "running task", status: str = "tasks_stopped"
 ) -> None:
     spinner = Halo(text=message, spinner="dots").start()
-    ecs = boto3.client("ecs")
     ecs.get_waiter(status).wait(cluster=cluster, tasks=[arn])
     if status == "tasks_stopped":
         container = ecs.describe_tasks(cluster=cluster, tasks=[arn])["tasks"][0][
@@ -39,14 +45,13 @@ def wait_for_task(
     spinner.succeed()
 
 
-def run_task_until_disconnect(cluster: str, task_defn: str) -> Optional[dict]:
+def run_task_until_disconnect(ecs_client, ecs_config: dict, task_defn: str) -> Optional[dict]:
     """
     Create a task that with a shell command that runs as long as a user is connected
     to the container. A 12 hour timeout is set to kill the container in case an
     orphaned process.
     """
-    ecs = boto3.client("ecs")
-    task_desc = ecs.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
+    task_desc = ecs_client.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
     wait_for_connect = 60
     max_lifetime = 12 * 60 * 60  # 12 hours
     command = [
@@ -72,10 +77,10 @@ def run_task_until_disconnect(cluster: str, task_defn: str) -> Optional[dict]:
         ),
     ]
 
-    resp = ecs.run_task(
+    from .cli.auth import get_email
+    resp = ecs_client.run_task(
         taskDefinition=task_desc["taskDefinitionArn"],
-        cluster=cluster,
-        startedBy=f"paaws-cli/shell/{getuser()}",
+        startedBy=f"paaws-cli/shell/{get_email()}",
         overrides={
             "containerOverrides": [
                 {
@@ -84,6 +89,7 @@ def run_task_until_disconnect(cluster: str, task_defn: str) -> Optional[dict]:
                 }
             ]
         },
+        **ecs_config["run_task_args"]
     )
     try:
         return resp["tasks"][0]

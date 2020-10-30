@@ -16,7 +16,8 @@ requires = [
   "boto3",
   "click",
   "halo",
-  "timeago"
+  "timeago",
+  "appdirs"
 ]
 description-file = "README.md"
 

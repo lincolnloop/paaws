@@ -2,7 +2,6 @@ from typing import Dict
 
 from halo import Halo
 
-import boto3
 import click
 from termcolor import colored
 
@@ -13,7 +12,7 @@ from ..utils import halo_success
 @Halo(text="fetching parameters", spinner="dots")
 def load_parameters(path, next_token=None) -> Dict[str, str]:
     """Fetch values from AWS Parameter Store"""
-    ssm = boto3.client("ssm")
+    ssm = app.boto3_client("ssm")
     # allow lookups when IAM only allows {arn}/*
     if not path.endswith("/"):
         path += "/"
@@ -58,7 +57,7 @@ def list_() -> None:
 @click.argument("key")
 def get(key: str) -> None:
     """Get the value for a variable"""
-    ssm = boto3.client("ssm")
+    ssm = app.boto3_client("ssm")
     if app.chamber_compatible_config:
         key = key.lower()
     name = "/".join([app.parameter_prefix, key])
@@ -70,7 +69,7 @@ def get(key: str) -> None:
 def set(key_val: str) -> None:
     """Set the value for a variable using KEY=value format"""
     key, val = key_val.split("=", 1)
-    ssm = boto3.client("ssm")
+    ssm = app.boto3_client("ssm")
     if app.chamber_compatible_config:
         key_store = key.lower()
         key_display = key.upper()
@@ -85,7 +84,7 @@ def set(key_val: str) -> None:
 @click.argument("key")
 def unset(key: str) -> None:
     """Unset (delete) a variable"""
-    ssm = boto3.client("ssm")
+    ssm = app.boto3_client("ssm")
     if app.chamber_compatible_config:
         key_store = key.lower()
         key_display = key.upper()

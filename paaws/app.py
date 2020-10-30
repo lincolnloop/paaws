@@ -1,11 +1,12 @@
 """App name state and configuration for resources"""
 import json
-from functools import wraps
-from typing import List, Optional
+from functools import wraps, lru_cache
+from typing import List
 
 import boto3
 from botocore.client import ClientError
 
+from .cli.auth import get_credentials
 from .utils import tags_match
 
 
@@ -50,7 +51,7 @@ class Application:
     def _load_config(self, name: str) -> dict:
         """Load any configuration for app from parameter store"""
         config_parameter_name = f"/paaws/apps/{self.name}/{name}"
-        ssm = boto3.client("ssm")
+        ssm = self.boto3_client("ssm")
 
         try:
             return json.loads(
@@ -108,10 +109,21 @@ class Application:
     def chamber_compatible_config(self) -> bool:
         return self.settings["parameter_store"]["chamber_compatible"]
 
+    @lru_cache(maxsize=16)
+    def boto3_client(self, client):
+        """Get boto3 client with credentials for the app"""
+        creds = get_credentials(self.name)
+        return boto3.client(
+            client,
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+        )
+
     @requires_appname
     def get_tasks(self) -> List[dict]:
         """List of task descriptions for app"""
-        ecs = boto3.client("ecs")
+        ecs = self.boto3_client("ecs")
         task_arns = ecs.list_tasks(cluster=self.cluster)["taskArns"]
         return [
             t
@@ -124,7 +136,7 @@ class Application:
     @requires_appname
     def get_services(self) -> List[dict]:
         """List of service descriptions for app"""
-        ecs = boto3.client("ecs")
+        ecs = self.boto3_client("ecs")
         service_arns = ecs.list_services(cluster=self.cluster)["serviceArns"]
         return [
             s
@@ -136,7 +148,7 @@ class Application:
 
     @requires_appname
     def get_builds(self, limit=20):
-        codebuild = boto3.client("codebuild")
+        codebuild = self.boto3_client("codebuild")
         return codebuild.batch_get_builds(
             ids=codebuild.list_builds_for_project(
                 projectName=self.settings["codebuild_project"]["name"]

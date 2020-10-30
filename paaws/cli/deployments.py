@@ -1,6 +1,5 @@
 import time
 
-import boto3
 import click
 from blessed import Terminal
 from halo import Halo
@@ -11,7 +10,7 @@ from ..utils import formatted_time_ago
 
 
 def deployment_id(detail: dict) -> str:
-    ecs = boto3.client("ecs")
+    ecs = app.boto3_client("ecs")
     resp = ecs.describe_task_definition(
         taskDefinition=detail["taskDefinition"], include=["TAGS"]
     )

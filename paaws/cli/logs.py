@@ -6,6 +6,7 @@ import click
 from awslogs.bin import main as awslogs_main
 from halo import Halo
 
+from .auth import get_credentials
 from ..app import app
 
 
@@ -25,6 +26,7 @@ def logs():
 @click.option("--start", "-s", default="5m", help="Start time")
 def view(prefix, tail, start):
     """Show application logs"""
+    creds = get_credentials(app.name)
     args = [
         "awslogs",
         "get",
@@ -33,6 +35,12 @@ def view(prefix, tail, start):
         "--no-stream",
         "--start",
         start,
+        "--aws-access-key-id",
+        creds["AccessKeyId"],
+        "--aws-secret-access-key",
+        creds["SecretAccessKey"],
+        "--aws-session-token",
+        creds["SessionToken"],
     ]
     if tail:
         args.append("--watch")

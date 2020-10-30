@@ -1,6 +1,5 @@
 from collections import defaultdict
 
-import boto3
 import click
 from halo import Halo
 from termcolor import colored, cprint
@@ -20,7 +19,7 @@ def task_id(task_detail: dict) -> str:
 @click.command()
 def ps():
     """Show running containers"""
-    ecs = boto3.client("ecs")
+    ecs = app.boto3_client("ecs")
     with Halo(text="fetching container information", spinner="dots"):
         tasks = app.get_tasks()
         tasks_by_group = defaultdict(list)
