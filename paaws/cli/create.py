@@ -1,10 +1,13 @@
+import os
 import json
 import random
 import uuid
+from typing import List
 
 import boto3
 import click
 from halo import Halo
+from paaws.utils import fail
 
 APP_FORMATION = "https://s3.amazonaws.com/paaws-cloudformations/latest/app.json"
 CLUSTER_FORMATION = "https://s3.amazonaws.com/paaws-cloudformations/latest/cluster.json"
@@ -65,15 +68,16 @@ aOE=
 """,
 }
 
-cloudformation = boto3.client("cloudformation")
-ssm = boto3.client("cloudformation")
-autoscaling = boto3.client("autoscaling")
-ecs = boto3.client("ecs")
-ec2 = boto3.client("ec2")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
 
 def _parameters(pyval: dict) -> List[dict]:
-    return [{"ParameterKey": k, "ParameterValue": v} for k, v in pyval]
+    return [{"ParameterKey": k, "ParameterValue": v} for k, v in pyval.items()]
+
+
+def _stack_outputs(cloudformation, stack_id: str) -> dict:
+    stack = cloudformation.describe_stacks(StackName=stack_id)["Stacks"][0]
+    return {o["OutputKey"]: o["OutputValue"] for o in stack["Outputs"]}
 
 
 @click.group()
@@ -81,22 +85,25 @@ def create():
     pass
 
 
-@create.command
+@create.command()
 @click.option(
     "--dockerhub-username", help="User for pulling public images from DockerHub"
 )
 @click.option(
     "--dockerhub-access-token",
     help="Access token for DockerHub. Generate at https://hub.docker.com/settings/security",
+    hide_input=True,
     prompt=True,
 )
 def account(dockerhub_username, dockerhub_access_token):
     """Create account-level Paaws resources. Requires a Docker Hub account and access token"""
+    ssm = boto3.client("ssm")
+    cloudformation = boto3.client("cloudformation")
     try:
         ssm.get_parameter(Name="/paaws/account")
         Halo(text="Account already exists", text_color="red").fail()
         exit(1)
-    except ssm.ParameterNotFound:
+    except ssm.exceptions.ParameterNotFound:
         pass
     tags = [{"Key": "paaws:account", "Value": "true"}]
     with Halo(text="Creating account-level resources...", spinner="dots"):
@@ -105,14 +112,12 @@ def account(dockerhub_username, dockerhub_access_token):
             Name="/paaws/account/dockerhub-username",
             Value=dockerhub_username,
             Type="SecureString",
-            Overwrite=True,
             Tags=tags,
         )
         ssm.put_parameter(
             Name="/paaws/account/dockerhub-access-token",
             Value=dockerhub_access_token,
             Type="SecureString",
-            Overwrite=True,
             Tags=tags,
         )
         # certs can't be imported via cloudformation
@@ -143,27 +148,26 @@ def account(dockerhub_username, dockerhub_access_token):
         # generate a keypair for setting up EC2 instances
         # since we are connecting with SSM Session Manager, we don't need to
         # know what the key is
-        ec2.create_key_pair(KeyName="paaws")
+        boto3.client("ec2").create_key_pair(KeyName="paaws")
     Halo(text="done", text_color="green").succeed()
 
 
-@create.command
+@create.command()
 @click.option("--name", "-n", help="Name of cluster", default="paaws")
 def cluster(name, dockerhub_username):
     """Create Paaws cluster"""
+    ssm = boto3.client("ssm")
     try:
         ssm.get_parameter(Name=f"/paaws/cluster/{name}")
         Halo(text="Cluster already exists", text_color="red").fail()
         exit(1)
-    except ssm.ParameterNotFound:
+    except ssm.exceptions.ParameterNotFound:
         pass
-    cert_arn = json.loads(
-        ssm.get_parameter(Name="/paaws/account")["Parameter"]["Value"]
-    )["initial_certificate_arn"]
     tags = [{"Key": "paaws:account", "Value": "true"}]
     region = boto3.session.Session().region_name
     stack_name = f"paaws-cluster-{name}"
     with Halo(text="Creating cluster:{name}...", spinner="dots"):
+        cloudformation = boto3.client("cloudformation")
         cfn = cloudformation.create_stack(
             StackName=stack_name,
             TemplateURL=CLUSTER_FORMATION,
@@ -172,7 +176,6 @@ def cluster(name, dockerhub_username):
                     "AvailabilityZones": [f"{region}a", f"{region}b", f"{region}c"],
                     "KeyPairName": "paaws",
                     "PaawsRoleExternalId": uuid.uuid4().hex,
-                    "ExampleCertificateArn": cert_arn,
                 }
             ),
             Capabilities=["CAPABILITY_NAMED_IAM"],
@@ -186,11 +189,13 @@ def cluster(name, dockerhub_username):
     else:
         Halo(text="complete", text_color="green").succeed()
     # Cloudformation is missing some functionality. Cleanup after:
+    # TODO: move to CustomResources in cloudformation
     with Halo(text="Cleaning up cluster...", spinner="dots"):
         outputs = {o["OutputKey"]: o["OutputValue"] for o in stack["Outputs"]}
 
         # Cleanup default Security Group
         vpc_id = outputs["VpcId"]
+        ec2 = boto3.client("ec2")
         default_sg = ec2.describe_security_groups(
             Filters=[
                 {"Name": "vpc-id", "Values": [vpc_id]},
@@ -207,6 +212,7 @@ def cluster(name, dockerhub_username):
                 IpPermissions=default_sg["IpPermissionsEgress"],
             )
 
+        autoscaling = boto3.client("autoscaling")
         # Update autoscaling
         autoscaling.update_auto_scaling_group(
             AutoScalingGroupName=outputs["AutoScalingGroupName"],
@@ -223,6 +229,7 @@ def cluster(name, dockerhub_username):
         )
 
         # Setup capacity provider
+        ecs = boto3.client("ecs")
         cluster_ = ecs.describe_clusters(clusters=[outputs["EcsClusterName"]])[
             "clusters"
         ][0]
@@ -255,42 +262,85 @@ def cluster(name, dockerhub_username):
     Halo(text="complete", text_color="green").succeed()
 
 
-@create.command
+@create.command()
 @click.option("--name", "-n", help="Name of app")
 @click.option("--cluster-name", "-c", default="paaws", help="Cluster to deploy to")
-@click.option("--repository-url", "-r", prompt=True, help="e.g., https://github.com/lincolnloop/lincolnloop.git")
+@click.option(
+    "--repository-url",
+    "-r",
+    help="e.g., https://github.com/lincolnloop/lincolnloop.git",
+)
 @click.option("--branch", "-b", prompt=True, help="Branch to build/deploy from")
-@click.option("--addon-private-s3", prompt=True, help="Include a private S3 bucket addon")
-@click.option("--addon-public-s3", prompt=True, help="Include a public S3 bucket addon")
-@click.option("--healthcheck-path", prompt=True, help="Path that will always response with a 200 status code when the app is ready, e.g. /-/health/")
-@click.option("--domain", prompt=True, help="Route traffic from this domain to the app")
-def app(name, cluster_name, repository_url, branch, addon_private_s3, addon_public_s3, healthcheck_path, domain):
+@click.option(
+    "--addon-private-s3",
+    is_flag=True,
+    help="Include a private S3 bucket addon",
+)
+@click.option(
+    "--addon-public-s3",
+    is_flag=True,
+    help="Include a public S3 bucket addon",
+)
+@click.option(
+    "--addon-database",
+    help="Create a database on the provided cluster",
+)
+@click.option(
+    "--addon-sqs",
+    is_flag=True,
+    help="Create an SQS queue",
+)
+@click.option(
+    "--addon-ses-domain",
+    help="Domain to allow outbound email via SES (requires SES Domain Identity is already setup)",
+)
+@click.option(
+    "--healthcheck-path",
+    help="Path that will always response with a 200 status code when the app is ready, e.g. /-/health/",
+)
+@click.option("--domain", help="Route traffic from this domain to the app")
+@click.option(
+    "--users",
+    help="Comma-separated list of email addresses of users that can manage the app",
+)
+def app(
+    name,
+    cluster_name,
+    repository_url,
+    branch,
+    addon_private_s3,
+    addon_public_s3,
+    addon_database,
+    addon_sqs,
+    addon_ses_domain,
+    healthcheck_path,
+    domain,
+    users,
+):
     """Create Paaws app"""
+    ssm = boto3.client("ssm")
     try:
         ssm.get_parameter(Name=f"/paaws/apps/{name}/settings")
         Halo(text="App already exists", text_color="red").fail()
         exit(1)
-    except ssm.ParameterNotFound:
+    except ssm.exceptions.ParameterNotFound:
         pass
     try:
-        cluster_stack_id = ssm.get_parameter(Name=f"/paaws/cluster/{cluster_name}")[
-            "Parameter"
-        ]["Value"]["stack_id"]
-    except ssm.ParameterNotFound:
-        Halo(text="Cluster does not exist", text_color="red").fail()
-        exit(1)
+        cluster_stack_id = json.loads(
+            ssm.get_parameter(Name=f"/paaws/cluster/{cluster_name}")["Parameter"][
+                "Value"
+            ]
+        )["stack_id"]
+    except ssm.exceptions.ParameterNotFound:
+        fail("Cluster does not exist")
     # TODO make this more robust for GH enterprise and support CODECOMMIT as a fallback
     if "github.com" in repository_url:
         repository_type = "GITHUB"
     elif "bitbucket.org" in repository_url:
         repository_type = "BITBUCKET"
     else:
-        raise("Unsupported repository type")
-    # get outputs from cluster stack
-    cluster_stack = cloudformation.describe_stacks(StackName=cluster_stack_id)[
-        "Stacks"
-    ][0]
-    outputs = {o["OutputKey"]: o["OutputValue"] for o in cluster_stack["Outputs"]}
+        raise RuntimeError("Unsupported repository type")
+    outputs = _stack_outputs(cluster_stack_id)
     cluster_parameters = {
         k: outputs[k]
         for k in [
@@ -303,31 +353,66 @@ def app(name, cluster_name, repository_url, branch, addon_private_s3, addon_publ
             "VpcId",
         ]
     }
+    ecs = boto3.client("ecs")
     cluster_parameters["CapacityProviderName"] = ecs.describe_clusters(
         clusters=[outputs["EcsClusterName"]]
-    )["clusters"][0]["capacityProviders"]
-    tags = [{"Key": "paaws:appName", "Value": name}]
+    )["clusters"][0]["capacityProviders"][0]
+    domains = [f"{name}.{outputs['Domain']}"]
+    if domain:
+        domains.append(domain)
     parameters = {
         "Branch": branch,
-        "Domains": [domain],
+        "Domains": ",".join(domains),
         "HealthCheckPath": healthcheck_path,
-        "LoadBalancerRulePriority": random.choice(range(1, 50001)),  # TODO: verify empty slot
+        "LoadBalancerRulePriority": str(
+            random.choice(range(1, 50001))
+        ),  # TODO: verify empty slot
         "Name": name,
         "PaawsRoleExternalId": uuid.uuid4().hex,
         "PrivateS3BucketEnabled": "enabled" if addon_private_s3 else "disabled",
         "PublicS3BucketEnabled": "enabled" if addon_public_s3 else "disabled",
+        "SesDomain": addon_ses_domain,
+        "SQSQueueEnabled": "enabled" if addon_sqs else "disabled",
         "RepositoryType": repository_type,
         "RepositoryUrl": repository_url,
         "Type": "app",
+        "AllowedUsers": users,
         **cluster_parameters,
     }
+    if addon_database:
+        db_cluster = json.loads(
+            ssm.get_parameter(Name=f"/paaws/database/{addon_database}")["Parameter"][
+                "Value"
+            ]
+        )
+        if db_cluster["vpc_id"] != cluster_parameters["VpcId"]:
+            fail(
+                "\n".join(
+                    [
+                        "Database is not in the same cluster as application.",
+                        f"  Database VPC: {db_cluster['vpc_id']}",
+                        f"  Application VPC: {cluster_parameters['VpcId']}",
+                    ]
+                )
+            )
+        parameters["DatabaseManagementLambdaArn"] = db_cluster["management_lambda_arn"]
+    else:
+        parameters["DatabaseManagementLambdaArn"] = ""
+    cloudformation = boto3.client("cloudformation")
     with Halo(text="Creating application resources...", spinner="dots"):
         cfn = cloudformation.create_stack(
             StackName=f"paaws-app-{name}",
             TemplateURL=APP_FORMATION,
             Parameters=_parameters(parameters),
             Capabilities=["CAPABILITY_NAMED_IAM"],
-            Tags=tags,
+            Tags=[
+                {"Key": k, "Value": v}
+                for k, v in {
+                    "paaws:appName": name,
+                    "paaws:cluster": outputs["EcsClusterName"],
+                    "paaws": "true",
+                }.items()
+            ],
         )
         waiter = cloudformation.get_waiter("stack_create_complete")
         waiter.wait(StackName=cfn["StackId"])
