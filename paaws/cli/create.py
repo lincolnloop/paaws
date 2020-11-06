@@ -321,8 +321,7 @@ def app(
     ssm = boto3.client("ssm")
     try:
         ssm.get_parameter(Name=f"/paaws/apps/{name}/settings")
-        Halo(text="App already exists", text_color="red").fail()
-        exit(1)
+        fail("App already exists")
     except ssm.exceptions.ParameterNotFound:
         pass
     try:
@@ -340,7 +339,8 @@ def app(
         repository_type = "BITBUCKET"
     else:
         raise RuntimeError("Unsupported repository type")
-    outputs = _stack_outputs(cluster_stack_id)
+    cloudformation = boto3.client("cloudformation")
+    outputs = _stack_outputs(cloudformation, cluster_stack_id)
     cluster_parameters = {
         k: outputs[k]
         for k in [
@@ -371,7 +371,7 @@ def app(
         "PaawsRoleExternalId": uuid.uuid4().hex,
         "PrivateS3BucketEnabled": "enabled" if addon_private_s3 else "disabled",
         "PublicS3BucketEnabled": "enabled" if addon_public_s3 else "disabled",
-        "SesDomain": addon_ses_domain,
+        "SesDomain": addon_ses_domain or "",
         "SQSQueueEnabled": "enabled" if addon_sqs else "disabled",
         "RepositoryType": repository_type,
         "RepositoryUrl": repository_url,
@@ -398,7 +398,6 @@ def app(
         parameters["DatabaseManagementLambdaArn"] = db_cluster["management_lambda_arn"]
     else:
         parameters["DatabaseManagementLambdaArn"] = ""
-    cloudformation = boto3.client("cloudformation")
     with Halo(text="Creating application resources...", spinner="dots"):
         cfn = cloudformation.create_stack(
             StackName=f"paaws-app-{name}",
