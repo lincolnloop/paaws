@@ -3,7 +3,7 @@ import logging
 import os
 
 from .app import app
-from .cli import auth, builds, config, deployments, db, logs, ps, shell, create
+from .cli import auth, builds, config, deployments, db, logs, ps, shell, create, upgrade
 
 
 @click.group()
@@ -21,6 +21,7 @@ main.add_command(config.config)
 main.add_command(logs.logs)
 main.add_command(ps.ps)
 main.add_command(create.create)
+main.add_command(upgrade.upgrade)
 main.add_command(auth.login)
 main.add_command(auth.whoami)
 
