@@ -1,6 +1,7 @@
 import logging
 from textwrap import indent
 
+from botocore.exceptions import ClientError
 import click
 from halo import Halo
 from termcolor import cprint, colored
@@ -51,6 +52,12 @@ def print_build(build: dict) -> None:
         cprint(indent(get_artifact(build, "commit.txt"), 4 * " "))
     except s3.exceptions.NoSuchKey:
         print("")
+    # sometimes a missing key shows up as AccessDenied
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "AccessDenied":
+            print("")
+        else:
+            raise
 
 
 def find_build_by_number(build_number: int, limit: int = 20) -> dict:
