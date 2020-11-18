@@ -24,13 +24,10 @@ def _parameters(pyval: dict) -> List[dict]:
     return [{"ParameterKey": k, "ParameterValue": v} for k, v in pyval.items()]
 
 
-
 def _stack_outputs_from_parameter(cloudformation, ssm, parameter_name: str) -> dict:
     try:
         cluster_stack_id = json.loads(
-            ssm.get_parameter(Name=parameter_name)["Parameter"][
-                "Value"
-            ]
+            ssm.get_parameter(Name=parameter_name)["Parameter"]["Value"]
         )["stack_id"]
     except ssm.exceptions.ParameterNotFound:
         fail(f"{parameter_name} does not exist")
@@ -40,6 +37,7 @@ def _stack_outputs_from_parameter(cloudformation, ssm, parameter_name: str) -> d
 def _stack_outputs(cloudformation, stack_id: str) -> dict:
     stack = cloudformation.describe_stacks(StackName=stack_id)["Stacks"][0]
     return {o["OutputKey"]: o["OutputValue"] for o in stack["Outputs"]}
+
 
 def _create_stack(cloudformation, kwargs: dict, is_change_set: bool = False) -> dict:
 
@@ -102,7 +100,10 @@ def account(dockerhub_username, dockerhub_access_token, check: bool):
         exit(1)
     except ssm.exceptions.ParameterNotFound:
         pass
-    tags = [{"Key": "paaws:account", "Value": "true"}]
+    tags = [
+        {"Key": "paaws:account", "Value": "true"},
+        {"Key": "paaws", "Value": "true"},
+    ]
     if check:
         msg = "Creating Cloudformation Change Set for account-level resources..."
     else:
@@ -130,7 +131,8 @@ def account(dockerhub_username, dockerhub_access_token, check: bool):
                 Capabilities=["CAPABILITY_IAM"],
                 Tags=tags,
             ),
-            is_change_set=check)
+            is_change_set=check,
+        )
 
 
 @create.command()
@@ -163,7 +165,9 @@ def cluster(name: str, domain: str, hosted_zone_id: str, check: bool):
         msg = f"Creating cluster:{name}..."
     with Halo(text=msg, spinner="dots"):
         cloudformation = boto3.client("cloudformation")
-        account_outputs = _stack_outputs_from_parameter(cloudformation, ssm, "/paaws/account")
+        account_outputs = _stack_outputs_from_parameter(
+            cloudformation, ssm, "/paaws/account"
+        )
         _create_stack(
             cloudformation,
             dict(
@@ -172,16 +176,18 @@ def cluster(name: str, domain: str, hosted_zone_id: str, check: bool):
                 Parameters=_parameters(
                     {
                         "Name": name,
-                        "AvailabilityZones": ",".join([f"{region}a", f"{region}b", f"{region}c"]),
+                        "AvailabilityZones": ",".join(
+                            [f"{region}a", f"{region}b", f"{region}c"]
+                        ),
                         "KeyPairName": account_outputs["KeyPairName"],
                         "Domain": domain,
-                        "HostedZone": hosted_zone_id
+                        "HostedZone": hosted_zone_id,
                     }
                 ),
                 Capabilities=["CAPABILITY_IAM"],
                 Tags=tags,
             ),
-            is_change_set=check
+            is_change_set=check,
         )
 
 
@@ -269,7 +275,7 @@ def app(
     healthcheck_path,
     domain,
     users,
-    check: bool
+    check: bool,
 ):
     """Create Paaws app"""
     ssm = boto3.client("ssm")
@@ -362,5 +368,5 @@ def app(
                     }.items()
                 ],
             ),
-            is_change_set=check
+            is_change_set=check,
         )
