@@ -2,6 +2,7 @@ import os
 import json
 import random
 import uuid
+import time
 from typing import List
 
 import boto3
@@ -40,6 +41,34 @@ def _stack_outputs(cloudformation, stack_id: str) -> dict:
     stack = cloudformation.describe_stacks(StackName=stack_id)["Stacks"][0]
     return {o["OutputKey"]: o["OutputValue"] for o in stack["Outputs"]}
 
+def _create_stack(cloudformation, kwargs: dict, is_change_set: bool = False) -> dict:
+
+    if is_change_set:
+        cfn = cloudformation.create_change_set(
+            ChangeSetType="CREATE",
+            ChangeSetName=f"create-{int(time.time())}",
+            **kwargs,
+        )
+        waiter = cloudformation.get_waiter("change_set_create_complete")
+        waiter.wait(ChangeSetName=cfn["Id"], StackName=cfn["StackId"])
+        resp = cloudformation.describe_change_set(
+            ChangeSetName=cfn["Id"], StackName=cfn["StackId"]
+        )
+    else:
+        cfn = cloudformation.create_stack(**kwargs)
+        waiter = cloudformation.get_waiter("stack_create_complete")
+        waiter.wait(StackName=cfn["StackId"])
+        resp = cloudformation.describe_stacks(StackName=cfn["StackName"])["Stacks"][0]
+        if resp["StackStatus"] != "CREATE_COMPLETE":
+            url = f"https://console.aws.amazon.com/cloudformation/home#/stacks/events?stackId={quote(cfn['StackId'])}"
+            fail(f"Create failed. See {url} for details.")
+    Halo(text="complete", text_color="green").succeed()
+    if is_change_set:
+        url = f"https://console.aws.amazon.com/cloudformation/home#/stacks/changesets/changes?stackId={resp['StackId']}&changeSetId={resp['ChangeSetId']}"
+        print("View and approve the change set at:")
+        print(f"  {url}")
+    return resp
+
 
 @click.group()
 def create():
@@ -56,7 +85,14 @@ def create():
     hide_input=True,
     prompt=True,
 )
-def account(dockerhub_username, dockerhub_access_token):
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
+def account(dockerhub_username, dockerhub_access_token, check: bool):
     """Create account-level Paaws resources. Requires a Docker Hub account and access token"""
     ssm = boto3.client("ssm")
     cloudformation = boto3.client("cloudformation")
@@ -67,7 +103,11 @@ def account(dockerhub_username, dockerhub_access_token):
     except ssm.exceptions.ParameterNotFound:
         pass
     tags = [{"Key": "paaws:account", "Value": "true"}]
-    with Halo(text="Creating account-level resources...", spinner="dots"):
+    if check:
+        msg = "Creating Cloudformation Change Set for account-level resources..."
+    else:
+        msg = "Creating account-level resources..."
+    with Halo(text=msg, spinner="dots"):
         # Can't create secure parameters from Cloudformation
         ssm.put_parameter(
             Name="/paaws/account/dockerhub-username",
@@ -81,25 +121,16 @@ def account(dockerhub_username, dockerhub_access_token):
             Type="SecureString",
             Tags=tags,
         )
-
-        cfn = cloudformation.create_stack(
-            StackName="paaws-account",
-            TemplateURL=ACCOUNT_FORMATION,
-            Parameters=_parameters(
-                {
-                    "PaawsRoleExternalId": uuid.uuid4().hex,
-                }
+        _create_stack(
+            cloudformation,
+            dict(
+                StackName="paaws-account",
+                TemplateURL=ACCOUNT_FORMATION,
+                Parameters=_parameters({"PaawsRoleExternalId": uuid.uuid4().hex}),
+                Capabilities=["CAPABILITY_IAM"],
+                Tags=tags,
             ),
-            Capabilities=["CAPABILITY_IAM"],
-            Tags=tags,
-        )
-        waiter = cloudformation.get_waiter("stack_create_complete")
-        waiter.wait(StackName=cfn["StackId"])
-    cfn = cloudformation.describe_stacks(StackName=cfn["StackId"])["Stacks"][0]
-    if cfn["StackStatus"] != "CREATE_COMPLETE":
-        Halo(text="failed", text_color="red").fail()
-        exit(1)
-    Halo(text="done", text_color="green").succeed()
+            is_change_set=check)
 
 
 @create.command()
@@ -107,7 +138,14 @@ def account(dockerhub_username, dockerhub_access_token):
 @click.option("--domain", "-d", help="Parent domain for apps in the cluster")
 # TODO: lookup the hosted zone id based on the domain
 @click.option("--hosted-zone-id", "-z", help="AWS Route53 Hosted Zone ID for domain.")
-def cluster(name: str, domain: str, hosted_zone_id: str):
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
+def cluster(name: str, domain: str, hosted_zone_id: str, check: bool):
     """Create Paaws cluster"""
     ssm = boto3.client("ssm")
     try:
@@ -119,31 +157,32 @@ def cluster(name: str, domain: str, hosted_zone_id: str):
     tags = [{"Key": "paaws", "Value": "true"}, {"Key": "paaws:cluster", "Value": name}]
     region = boto3.session.Session().region_name
     stack_name = f"paaws-cluster-{name}"
-    with Halo(text=f"Creating cluster:{name}...", spinner="dots"):
+    if check:
+        msg = f"Creating Cloudformation Change Set for cluster:{name} resources..."
+    else:
+        msg = f"Creating cluster:{name}..."
+    with Halo(text=msg, spinner="dots"):
         cloudformation = boto3.client("cloudformation")
         account_outputs = _stack_outputs_from_parameter(cloudformation, ssm, "/paaws/account")
-        cfn = cloudformation.create_stack(
-            StackName=stack_name,
-            TemplateURL=CLUSTER_FORMATION,
-            Parameters=_parameters(
-                {
-                    "Name": name,
-                    "AvailabilityZones": ",".join([f"{region}a", f"{region}b", f"{region}c"]),
-                    "KeyPairName": account_outputs["KeyPairName"],
-                    "Domain": domain,
-                    "HostedZone": hosted_zone_id
-                }
+        _create_stack(
+            cloudformation,
+            dict(
+                StackName=stack_name,
+                TemplateURL=CLUSTER_FORMATION,
+                Parameters=_parameters(
+                    {
+                        "Name": name,
+                        "AvailabilityZones": ",".join([f"{region}a", f"{region}b", f"{region}c"]),
+                        "KeyPairName": account_outputs["KeyPairName"],
+                        "Domain": domain,
+                        "HostedZone": hosted_zone_id
+                    }
+                ),
+                Capabilities=["CAPABILITY_IAM"],
+                Tags=tags,
             ),
-            Capabilities=["CAPABILITY_IAM"],
-            Tags=tags,
+            is_change_set=check
         )
-        waiter = cloudformation.get_waiter("stack_create_complete")
-        waiter.wait(StackName=cfn["StackId"])
-        stack = cloudformation.describe_stacks(StackName=stack_name)["Stacks"][0]
-    if stack["StackStatus"] != "CREATE_COMPLETE":
-        Halo(text="failed", text_color="red").fail()
-    else:
-        Halo(text="complete", text_color="green").succeed()
 
 
 @create.command()
@@ -156,7 +195,14 @@ def cluster(name: str, domain: str, hosted_zone_id: str):
     is_flag=True,
     help="Run database in multiple availability zones. Doubles the cost, but provides better availability.",
 )
-def database(name, cluster, instance_class, multi_az):
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
+def database(name, cluster, instance_class, multi_az, check: bool):
     """Create database within a cluster"""
     # TODO: lookup cluster data and run formation
     pass
@@ -203,6 +249,13 @@ def database(name, cluster, instance_class, multi_az):
     "--users",
     help="Comma-separated list of email addresses of users that can manage the app",
 )
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
 def app(
     name,
     cluster_name,
@@ -216,6 +269,7 @@ def app(
     healthcheck_path,
     domain,
     users,
+    check: bool
 ):
     """Create Paaws app"""
     ssm = boto3.client("ssm")
@@ -287,25 +341,26 @@ def app(
         parameters["DatabaseManagementLambdaArn"] = db_cluster["management_lambda_arn"]
     else:
         parameters["DatabaseManagementLambdaArn"] = ""
-    with Halo(text="Creating application resources...", spinner="dots"):
-        cfn = cloudformation.create_stack(
-            StackName=f"paaws-app-{name}",
-            TemplateURL=APP_FORMATION,
-            Parameters=_parameters(parameters),
-            Capabilities=["CAPABILITY_NAMED_IAM"],
-            Tags=[
-                {"Key": k, "Value": v}
-                for k, v in {
-                    "paaws:appName": name,
-                    "paaws:cluster": outputs["EcsClusterName"],
-                    "paaws": "true",
-                }.items()
-            ],
+    if check:
+        msg = f"Creating Cloudformation Change Set for app:{name} resources..."
+    else:
+        msg = f"Creating app:{name} resources..."
+    with Halo(text=msg, spinner="dots"):
+        _create_stack(
+            cloudformation,
+            dict(
+                StackName=f"paaws-app-{name}",
+                TemplateURL=APP_FORMATION,
+                Parameters=_parameters(parameters),
+                Capabilities=["CAPABILITY_NAMED_IAM"],
+                Tags=[
+                    {"Key": k, "Value": v}
+                    for k, v in {
+                        "paaws:appName": name,
+                        "paaws:cluster": outputs["EcsClusterName"],
+                        "paaws": "true",
+                    }.items()
+                ],
+            ),
+            is_change_set=check
         )
-        waiter = cloudformation.get_waiter("stack_create_complete")
-        waiter.wait(StackName=cfn["StackId"])
-    cfn = cloudformation.describe_stacks(StackName=cfn["StackId"])["Stacks"][0]
-    if cfn["StackStatus"] != "CREATE_COMPLETE":
-        Halo(text="failed", text_color="red").fail()
-        exit(1)
-    Halo(text="done", text_color="green").succeed()
