@@ -5,9 +5,9 @@ from urllib.parse import quote
 import boto3
 import click
 from halo import Halo
-from paaws.utils import fail
+from apppack.utils import fail
 
-from paaws.cli.create import (
+from apppack.cli.create import (
     APP_FORMATION,
     ACCOUNT_FORMATION,
     CLUSTER_FORMATION,
@@ -64,11 +64,28 @@ def account():
 
 @upgrade.command()
 @click.argument("name", default="paaws")
-def cluster(name):
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
+def cluster(name: str, check: bool):
     """Updates the Cloudformation stack for the given app"""
-    stack_name = f"paaws-cluster-{name}"
-    with Halo(text=f"Upgrading cluster:{name} stack...", spinner="dots"):
-        _update_stack(stack_name, template=CLUSTER_FORMATION)
+    stack_name = f"paaws"
+    if check:
+        msg = f"Creating change set for upgrade of cluster:{name} stack..."
+    else:
+        msg = f"Upgrading cluster:{name} stack..."
+    with Halo(text=msg, spinner="dots"):
+        resp = _update_stack(
+            stack_name, template=CLUSTER_FORMATION, is_change_set=check
+        )
+    if check:
+        url = f"https://console.aws.amazon.com/cloudformation/home#/stacks/changesets/changes?stackId={resp['StackId']}&changeSetId={resp['ChangeSetId']}"
+        print("View and approve the change set at:")
+        print(f"  {url}")
 
 
 @upgrade.command()
@@ -113,6 +130,30 @@ def app(app_name, check: bool):
         msg = f"Creating change set for upgrade of app:{app_name} stack..."
     else:
         msg = f"Upgrading app:{app_name} stack..."
+    with Halo(text=msg, spinner="dots"):
+        resp = _update_stack(stack_name, template=APP_FORMATION, is_change_set=check)
+    if check:
+        url = f"https://console.aws.amazon.com/cloudformation/home#/stacks/changesets/changes?stackId={quote(resp['StackId'])}&changeSetId={quote(resp['ChangeSetId'])}"
+        print("View and approve the change set at:")
+        print(f"  {url}")
+
+
+@upgrade.command()
+@click.argument("app_name")
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
+def pipeline(app_name, check: bool):
+    """Updates the Cloudformation stack for the given pipeline"""
+    stack_name = f"paaws-pipeline-{app_name}"
+    if check:
+        msg = f"Creating change set for upgrade of pipeline:{app_name} stack..."
+    else:
+        msg = f"Upgrading pipeline:{app_name} stack..."
     with Halo(text=msg, spinner="dots"):
         resp = _update_stack(stack_name, template=APP_FORMATION, is_change_set=check)
     if check:

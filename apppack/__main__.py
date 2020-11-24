@@ -24,9 +24,10 @@ main.add_command(create.create)
 main.add_command(upgrade.upgrade)
 main.add_command(auth.login)
 main.add_command(auth.whoami)
+main.add_command(auth.logout)
 
 if __name__ == "__main__":
     if "PAAWS_DEBUG" in os.environ:
         logging.basicConfig()
-        logging.getLogger("paaws").setLevel(logging.DEBUG)
+        logging.getLogger("apppack").setLevel(logging.DEBUG)
     main()

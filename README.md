@@ -141,7 +141,7 @@ $ aws ssm put-parameter \
 
 ## Available Commands
 
-<!-- generate with `python -m paaws.docs` -->
+<!-- generate with `python -m apppack.docs` -->
 
 ### `builds`
 

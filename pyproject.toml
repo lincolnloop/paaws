@@ -3,7 +3,7 @@ requires = ["flit_core >=2,<3"]
 build-backend = "flit_core.buildapi"
 
 [tool.flit.metadata]
-module = "paaws"
+module = "apppack"
 author = "Peter Baumgartner"
 author-email = "pete@lincolnloop.com"
 home-page = "https://github.com/lincolnloop/paaws"
@@ -22,7 +22,7 @@ requires = [
 description-file = "README.md"
 
 [tool.flit.scripts]
-paaws = "paaws.__main__:main"
+apppack = "apppack.__main__:main"
 
 [tool.flit.metadata.requires-extra]
 dev = ["shiv"]

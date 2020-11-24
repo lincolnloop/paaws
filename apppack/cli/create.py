@@ -4,11 +4,12 @@ import random
 import uuid
 import time
 from typing import List
+from urllib.parse import quote
 
 import boto3
 import click
 from halo import Halo
-from paaws.utils import fail
+from apppack.utils import fail, app_settings
 
 APP_FORMATION = "https://s3.amazonaws.com/paaws-cloudformations/latest/app.json"
 CLUSTER_FORMATION = "https://s3.amazonaws.com/paaws-cloudformations/latest/cluster.json"
@@ -137,9 +138,9 @@ def account(dockerhub_username, dockerhub_access_token, check: bool):
 
 @create.command()
 @click.argument("name", default="paaws")
-@click.option("--domain", "-d", help="Parent domain for apps in the cluster")
+@click.option("--domain", "-d", required=True, help="Parent domain for apps in the cluster")
 # TODO: lookup the hosted zone id based on the domain
-@click.option("--hosted-zone-id", "-z", help="AWS Route53 Hosted Zone ID for domain.")
+@click.option("--hosted-zone-id", "-z", required=True, help="AWS Route53 Hosted Zone ID for domain.")
 @click.option(
     "--check",
     "-c",
@@ -264,7 +265,7 @@ def database(name, cluster, instance_class, multi_az, check: bool):
 )
 def app(
     name,
-    cluster_name,
+    cluster,
     repository_url,
     branch,
     addon_private_s3,
@@ -278,11 +279,10 @@ def app(
     check: bool,
 ):
     """Create Paaws app"""
-    ssm = boto3.client("ssm")
     try:
-        ssm.get_parameter(Name=f"/paaws/apps/{name}/settings")
+        app_settings(name)
         fail("App already exists")
-    except ssm.exceptions.ParameterNotFound:
+    except KeyError:
         pass
     # TODO make this more robust for GH enterprise and support CODECOMMIT as a fallback
     if "github.com" in repository_url:
@@ -292,7 +292,8 @@ def app(
     else:
         raise RuntimeError("Unsupported repository type")
     cloudformation = boto3.client("cloudformation")
-    outputs = _stack_outputs(cloudformation, ssm, f"/paaws/cluster/{cluster_name}")
+    ssm = boto3.client("ssm")
+    outputs = _stack_outputs_from_parameter(cloudformation, ssm, f"/paaws/cluster/{cluster}")
     cluster_parameters = {
         k: outputs[k]
         for k in [
@@ -363,6 +364,163 @@ def app(
                     {"Key": k, "Value": v}
                     for k, v in {
                         "paaws:appName": name,
+                        "paaws:cluster": outputs["EcsClusterName"],
+                        "paaws": "true",
+                    }.items()
+                ],
+            ),
+            is_change_set=check,
+        )
+
+
+@create.command()
+@click.option("--name", "-n", help="Name of pipeline")
+@click.option("--cluster", "-c", default="paaws", help="Cluster to deploy to")
+@click.option(
+    "--repository-url",
+    "-r",
+    help="e.g., https://github.com/lincolnloop/lincolnloop.git",
+)
+@click.option(
+    "--addon-private-s3",
+    is_flag=True,
+    help="Include a private S3 bucket addon",
+)
+@click.option(
+    "--addon-public-s3",
+    is_flag=True,
+    help="Include a public S3 bucket addon",
+)
+@click.option(
+    "--addon-database",
+    help="Create a database on the provided cluster",
+)
+@click.option(
+    "--addon-sqs",
+    is_flag=True,
+    help="Create an SQS queue",
+)
+@click.option(
+    "--addon-ses-domain",
+    help="Domain to allow outbound email via SES (requires SES Domain Identity is already setup)",
+)
+@click.option(
+    "--healthcheck-path",
+    help="Path that will always response with a 200 status code when the app is ready, e.g. /-/health/",
+)
+@click.option("--domain", help="Route traffic from this domain to the app")
+@click.option(
+    "--users",
+    help="Comma-separated list of email addresses of users that can manage the app",
+)
+@click.option(
+    "--check",
+    "-c",
+    is_flag=True,
+    default=False,
+    help="Review changes prior to applying",
+)
+def pipeline(
+    name,
+    cluster,
+    repository_url,
+    addon_private_s3,
+    addon_public_s3,
+    addon_database,
+    addon_sqs,
+    addon_ses_domain,
+    healthcheck_path,
+    domain,
+    users,
+    check: bool,
+):
+    """Create Paaws pipeline"""
+    try:
+        app_settings(name)
+        fail("App already exists")
+    except KeyError:
+        pass
+    # TODO make this more robust for GH enterprise and support CODECOMMIT as a fallback
+    if "github.com" in repository_url:
+        repository_type = "GITHUB"
+    elif "bitbucket.org" in repository_url:
+        repository_type = "BITBUCKET"
+    else:
+        raise RuntimeError("Unsupported repository type")
+    cloudformation = boto3.client("cloudformation")
+    ssm = boto3.client("ssm")
+    outputs = _stack_outputs_from_parameter(cloudformation, ssm, f"/paaws/cluster/{cluster}")
+    cluster_parameters = {
+        k: outputs[k]
+        for k in [
+            "CapacityProviderName",
+            "EcsClusterArn",
+            "EcsClusterName",
+            "LoadBalancerArn",
+            "LoadBalancerListenerArn",
+            "LoadBalancerSuffix",
+            "PublicSubnetIds",
+            "VpcId",
+        ]
+    }
+    domains = [f"{name}.{outputs['Domain']}"]
+    if domain:
+        domains.append(domain)
+    parameters = {
+        "Branch": "",
+        "Domains": ",".join(domains),
+        "HealthCheckPath": healthcheck_path or "/",
+        "LoadBalancerRulePriority": str(
+            random.choice(range(1, 50001))
+        ),  # TODO: verify empty slot
+        "Name": name,
+        "PaawsRoleExternalId": uuid.uuid4().hex,
+        "PrivateS3BucketEnabled": "enabled" if addon_private_s3 else "disabled",
+        "PublicS3BucketEnabled": "enabled" if addon_public_s3 else "disabled",
+        "SesDomain": addon_ses_domain or "",
+        "SQSQueueEnabled": "enabled" if addon_sqs else "disabled",
+        "RepositoryType": repository_type,
+        "RepositoryUrl": repository_url,
+        "Type": "pipeline",
+        "AllowedUsers": users,
+        **cluster_parameters,
+    }
+    if addon_database:
+        db_cluster = json.loads(
+            ssm.get_parameter(Name=f"/paaws/database/{addon_database}")["Parameter"][
+                "Value"
+            ]
+        )
+        if db_cluster["vpc_id"] != cluster_parameters["VpcId"]:
+            fail(
+                "\n".join(
+                    [
+                        "Database is not in the same cluster as application.",
+                        f"  Database VPC: {db_cluster['vpc_id']}",
+                        f"  Application VPC: {cluster_parameters['VpcId']}",
+                    ]
+                )
+            )
+        parameters["DatabaseManagementLambdaArn"] = db_cluster["management_lambda_arn"]
+    else:
+        parameters["DatabaseManagementLambdaArn"] = ""
+    if check:
+        msg = f"Creating Cloudformation Change Set for pipeline:{name} resources..."
+    else:
+        msg = f"Creating pipeline:{name} resources..."
+    with Halo(text=msg, spinner="dots"):
+        _create_stack(
+            cloudformation,
+            dict(
+                StackName=f"paaws-pipeline-{name}",
+                TemplateURL=APP_FORMATION,
+                Parameters=_parameters(parameters),
+                Capabilities=["CAPABILITY_IAM"],
+                Tags=[
+                    {"Key": k, "Value": v}
+                    for k, v in {
+                        "paaws:appName": name,
+                        "paaws:pipeline": "true",
                         "paaws:cluster": outputs["EcsClusterName"],
                         "paaws": "true",
                     }.items()

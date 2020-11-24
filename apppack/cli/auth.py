@@ -1,4 +1,5 @@
 import json
+import shutil
 import webbrowser
 from functools import lru_cache
 from pathlib import Path
@@ -9,11 +10,11 @@ import click
 from appdirs import user_cache_dir
 import urllib3
 import boto3
-from paaws.utils import fail, success
+from apppack.utils import fail, success
 
 log = logging.getLogger(__name__)
 
-AUTH0_APP_URL = "https://dev-cehlend0.us.auth0.com"
+AUTH0_APP_URL = "https://auth.apppack.io"
 DEVICE_CODE_URL = f"{AUTH0_APP_URL}/oauth/device/code"
 OAUTH_TOKEN_URL = f"{AUTH0_APP_URL}/oauth/token"
 USER_INFO_URL = f"{AUTH0_APP_URL}/userinfo"
@@ -21,7 +22,7 @@ CLIENT_ID = "x15zAd2hgdbugNWSZz2mP2k5jcZfNFk3"
 SCOPE = "openid profile email offline_access"
 AUDIENCE = "https://paaws.lloop.us"
 GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
-CACHE_DIR = Path(user_cache_dir(appname="paaws", appauthor="LincolnLoop"))
+CACHE_DIR = Path(user_cache_dir(appname="apppack", appauthor="LincolnLoop"))
 
 
 def write_to_cache(key: str, value: Any) -> None:
@@ -46,6 +47,7 @@ def post_json(url: str, json_dict: dict) -> urllib3.response.HTTPResponse:
         headers={"Content-Type": "application/json"},
     )
     if resp.status != 200:
+        print(resp.__dict__)
         fail(f"Request to {url} failed. Status {resp.status}")
     return json.loads(resp.data.decode())
 
@@ -71,6 +73,11 @@ def login():
     user_info = get_user_info(oauth_token_resp["access_token"])
     success(f"Logged in as {user_info['email']}")
 
+@click.command()
+def logout():
+    """Logout CLI"""
+    shutil.rmtree(str(CACHE_DIR))
+    success("Logged out")
 
 @click.command()
 def whoami():
@@ -123,7 +130,7 @@ def verify_auth() -> (dict, dict):
     try:
         tokens = read_from_cache("tokens")
     except FileNotFoundError:
-        return fail("Not logged in. Run `paaws login`")
+        return fail("Not logged in. Run `apppack login`")
     try:
         user_info = read_from_cache("user")
     except FileNotFoundError:

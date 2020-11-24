@@ -1,6 +1,5 @@
 import datetime
 import getpass
-import json
 from getpass import getuser
 from typing import List
 
@@ -21,13 +20,8 @@ def s3_location(prefix: str) -> (str, str):
 def run_task(app_name: str, definition: str, command: List[str]) -> str:
     # Fetch the default runTask arguments from parameter store
     try:
-        ssm = app.boto3_client("ssm")
-        run_task_kwargs = json.loads(
-            ssm.get_parameter(Name=f"/paaws/apps/{app_name}/ecs-config")["Parameter"][
-                "Value"
-            ]
-        )["run_task_args_fargate"]
-    except ssm.exceptions.ParameterNotFound:
+        run_task_kwargs = app.dynamodb_item("CONFIG#ecs")["run_task_args_fargate"]
+    except KeyError:
         run_task_kwargs = {"cluster": app.cluster}
 
     run_task_kwargs["overrides"] = {
@@ -102,7 +96,7 @@ def shell():
     ecs = app.boto3_client("ecs")
     task = run_task_until_disconnect(
         ecs,
-        app._load_config("ecs-config"),
+        app.dynamodb_item("CONFIG#ecs"),
         task_defn=app.settings["dbutils"]["shell_task_family"],
     )
     if task is None:

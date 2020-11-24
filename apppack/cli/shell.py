@@ -57,7 +57,7 @@ def shell():
         exit(1)
     ecs = app.boto3_client("ecs")
     task = run_task_until_disconnect(
-        ecs, app._load_config("ecs-config"), app.settings["shell"]["task_family"]
+        ecs, app.dynamodb_item("CONFIG#ecs"), app.settings["shell"]["task_family"]
     )
     if task is None:
         exit(1)

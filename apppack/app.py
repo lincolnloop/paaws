@@ -7,7 +7,7 @@ import boto3
 from botocore.client import ClientError
 
 from .cli.auth import get_credentials
-from .utils import tags_match
+from .utils import tags_match, replace_decimals
 
 
 class NoApplicationDefined(Exception):
@@ -48,22 +48,6 @@ class Application:
     shell_service: str
     tags: List[dict]
 
-    def _load_config(self, name: str) -> dict:
-        """Load any configuration for app from parameter store"""
-        config_parameter_name = f"/paaws/apps/{self.name}/{name}"
-        ssm = self.boto3_client("ssm")
-
-        try:
-            return json.loads(
-                ssm.get_parameter(Name=config_parameter_name)["Parameter"]["Value"]
-            )
-        except ssm.exceptions.ParameterNotFound:
-            pass
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "AccessDeniedException":
-                pass
-        return {}
-
     def _initialize_settings(self) -> None:
         """Set attributes for resources on this app"""
         if not self.name:
@@ -82,7 +66,7 @@ class Application:
             "tags": [],
         }
 
-        self.settings = merge(self._load_config("settings"), default_settings)
+        self.settings = merge(self.dynamodb_item("settings"), default_settings)
 
     def setup(self, name: str) -> None:
         """Update resources when name is set"""
@@ -110,7 +94,7 @@ class Application:
         return self.settings["parameter_store"]["chamber_compatible"]
 
     @lru_cache(maxsize=16)
-    def boto3_client(self, client):
+    def boto3_client(self, client: str):
         """Get boto3 client with credentials for the app"""
         creds = get_credentials(self.name)
         return boto3.client(
@@ -119,6 +103,23 @@ class Application:
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
         )
+
+    @lru_cache(maxsize=16)
+    def boto3_resource(self, resource: str):
+        """Get boto3 client with credentials for the app"""
+        creds = get_credentials(self.name)
+        return boto3.resource(
+            resource,
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+        )
+
+    def dynamodb_item(self, name: str):
+        return replace_decimals(self.boto3_resource("dynamodb").Table("paaws").get_item(
+            Key={"primary_id": f"APP#{self.name}", "secondary_id": name}
+        )["Item"]["value"])
+
 
     @requires_appname
     def get_tasks(self) -> List[dict]:

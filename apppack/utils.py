@@ -1,8 +1,10 @@
 import datetime
+import decimal
 import logging
 from contextlib import contextmanager
-from typing import List, Optional, NoReturn
+from typing import List, Optional, NoReturn, Any
 
+import boto3
 import timeago
 from halo import Halo
 from termcolor import colored
@@ -80,9 +82,10 @@ def run_task_until_disconnect(ecs_client, ecs_config: dict, task_defn: str) -> O
     ]
 
     from .cli.auth import get_email
+
     resp = ecs_client.run_task(
         taskDefinition=task_desc["taskDefinitionArn"],
-        startedBy=f"paaws-cli/shell/{get_email()}",
+        startedBy=f"apppack-cli/shell/{get_email()}",
         overrides={
             "containerOverrides": [
                 {
@@ -101,8 +104,30 @@ def run_task_until_disconnect(ecs_client, ecs_config: dict, task_defn: str) -> O
         return None
 
 
-
 def formatted_time_ago(dt: datetime) -> str:
     ago = timeago.format(dt, datetime.datetime.now(datetime.timezone.utc))
     full = dt.isoformat(timespec="seconds")
     return colored(f"{full} ~ {ago}", attrs=["dark"])
+
+
+def app_settings(app_name: str) -> dict:
+    dynamodb = boto3.resource("dynamodb")
+    return dynamodb.Table("paaws").get_item(
+        Key={"primary_id": f"APP#{app_name}", "secondary_id": "settings"}
+    )["Item"]["value"]
+
+
+def replace_decimals(obj: Any) -> Any:
+    """
+    DynamoDB converts ints to Decimals
+
+    We don't want that because AWS API calls that expect ints fail on Decimals.
+    This converts it back to what we want
+    """
+    if isinstance(obj, list):
+        return [replace_decimals(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: replace_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, decimal.Decimal):
+        return int(obj) if obj % 1 == 0 else obj
+    return obj
