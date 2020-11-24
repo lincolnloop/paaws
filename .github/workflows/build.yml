@@ -26,14 +26,14 @@ jobs:
 
     - name: Build zipapp
       run: |
-          make paaws.pyz
-          sha256sum paaws.pyz
+          make apppack.pyz
+          sha256sum apppack.pyz
 
       # Move to /tmp to avoid importing any Python from the cwd
     - name: Smoke Test
       run: |
           pushd /tmp
-          $(dirs -l +1)/paaws.pyz --help
+          $(dirs -l +1)/apppack.pyz --help
 
     - name: Store Artifact
       uses: actions/upload-artifact@v1

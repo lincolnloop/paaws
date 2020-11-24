@@ -73,7 +73,7 @@ def account():
 )
 def cluster(name: str, check: bool):
     """Updates the Cloudformation stack for the given app"""
-    stack_name = f"paaws"
+    stack_name = f"paaws-cluster-{name}"
     if check:
         msg = f"Creating change set for upgrade of cluster:{name} stack..."
     else:
