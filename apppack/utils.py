@@ -11,6 +11,7 @@ from termcolor import colored
 
 log = logging.getLogger(__name__)
 
+
 @contextmanager
 def halo_success(*args, **kwargs):
     spinner = Halo(*args, **kwargs)
@@ -28,13 +29,18 @@ def fail(message: str) -> NoReturn:
 def success(message: str) -> None:
     Halo(text=message, text_color="green").succeed()
 
+
 def tags_match(tags: List[dict], expected_tags: List[dict]) -> bool:
     """Is expected_tags a subset of tags?"""
     return all([tag in tags for tag in expected_tags])
 
 
 def wait_for_task(
-    ecs, cluster: str, arn: str, message: str = "running task", status: str = "tasks_stopped"
+    ecs,
+    cluster: str,
+    arn: str,
+    message: str = "running task",
+    status: str = "tasks_stopped",
 ) -> None:
     spinner = Halo(text=message, spinner="dots").start()
     ecs.get_waiter(status).wait(cluster=cluster, tasks=[arn])
@@ -48,14 +54,18 @@ def wait_for_task(
     spinner.succeed()
 
 
-def run_task_until_disconnect(ecs_client, ecs_config: dict, task_defn: str) -> Optional[dict]:
+def run_task_until_disconnect(
+    ecs_client, ecs_config: dict, task_defn: str
+) -> Optional[dict]:
     """
     Create a task that with a shell command that runs as long as a user is connected
     to the container. A 12 hour timeout is set to kill the container in case an
     orphaned process.
     """
     log.debug("Looking up description for task definition %s", task_defn)
-    task_desc = ecs_client.describe_task_definition(taskDefinition=task_defn)["taskDefinition"]
+    task_desc = ecs_client.describe_task_definition(taskDefinition=task_defn)[
+        "taskDefinition"
+    ]
     wait_for_connect = 60
     max_lifetime = 12 * 60 * 60  # 12 hours
     command = [
@@ -94,7 +104,7 @@ def run_task_until_disconnect(ecs_client, ecs_config: dict, task_defn: str) -> O
                 }
             ]
         },
-        **ecs_config["run_task_args"]
+        **ecs_config["run_task_args"],
     )
     try:
         return resp["tasks"][0]

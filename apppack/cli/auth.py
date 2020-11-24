@@ -73,11 +73,13 @@ def login():
     user_info = get_user_info(oauth_token_resp["access_token"])
     success(f"Logged in as {user_info['email']}")
 
+
 @click.command()
 def logout():
     """Logout CLI"""
     shutil.rmtree(str(CACHE_DIR))
     success("Logged out")
+
 
 @click.command()
 def whoami():

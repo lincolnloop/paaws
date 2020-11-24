@@ -88,13 +88,15 @@ def view(id):
     build = find_build_by_number(id)
     print_build(build)
 
+
 @builds.command()
 def start():
     """Trigger new build"""
     codebuild = app.boto3_client("codebuild")
-    build = codebuild.start_build(projectName=app.settings["codebuild_project"]["name"])["build"]
+    build = codebuild.start_build(
+        projectName=app.settings["codebuild_project"]["name"]
+    )["build"]
     print_build(build)
-
 
 
 @builds.command()

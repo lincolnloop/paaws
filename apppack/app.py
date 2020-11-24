@@ -57,7 +57,10 @@ class Application:
             "log_group": {"name": self.name},
             "parameter_store": {"prefix": f"/{self.name}", "chamber_compatible": False},
             "codebuild_project": {"name": self.name},
-            "shell": {"task_family": f"{self.name}-shell", "command": "bash -l",},
+            "shell": {
+                "task_family": f"{self.name}-shell",
+                "command": "bash -l",
+            },
             "db_utils": {
                 "shell_task_family": f"{self.name}-dbutils-shell",
                 "dumpload_task_family": f"{self.name}-dbutils-dumpload",
@@ -116,10 +119,13 @@ class Application:
         )
 
     def dynamodb_item(self, name: str):
-        return replace_decimals(self.boto3_resource("dynamodb").Table("paaws").get_item(
-            Key={"primary_id": f"APP#{self.name}", "secondary_id": name}
-        )["Item"]["value"])
-
+        return replace_decimals(
+            self.boto3_resource("dynamodb")
+            .Table("paaws")
+            .get_item(Key={"primary_id": f"APP#{self.name}", "secondary_id": name})[
+                "Item"
+            ]["value"]
+        )
 
     @requires_appname
     def get_tasks(self) -> List[dict]:

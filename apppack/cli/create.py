@@ -138,9 +138,16 @@ def account(dockerhub_username, dockerhub_access_token, check: bool):
 
 @create.command()
 @click.argument("name", default="paaws")
-@click.option("--domain", "-d", required=True, help="Parent domain for apps in the cluster")
+@click.option(
+    "--domain", "-d", required=True, help="Parent domain for apps in the cluster"
+)
 # TODO: lookup the hosted zone id based on the domain
-@click.option("--hosted-zone-id", "-z", required=True, help="AWS Route53 Hosted Zone ID for domain.")
+@click.option(
+    "--hosted-zone-id",
+    "-z",
+    required=True,
+    help="AWS Route53 Hosted Zone ID for domain.",
+)
 @click.option(
     "--check",
     "-c",
@@ -293,7 +300,9 @@ def app(
         raise RuntimeError("Unsupported repository type")
     cloudformation = boto3.client("cloudformation")
     ssm = boto3.client("ssm")
-    outputs = _stack_outputs_from_parameter(cloudformation, ssm, f"/paaws/cluster/{cluster}")
+    outputs = _stack_outputs_from_parameter(
+        cloudformation, ssm, f"/paaws/cluster/{cluster}"
+    )
     cluster_parameters = {
         k: outputs[k]
         for k in [
@@ -449,7 +458,9 @@ def pipeline(
         raise RuntimeError("Unsupported repository type")
     cloudformation = boto3.client("cloudformation")
     ssm = boto3.client("ssm")
-    outputs = _stack_outputs_from_parameter(cloudformation, ssm, f"/paaws/cluster/{cluster}")
+    outputs = _stack_outputs_from_parameter(
+        cloudformation, ssm, f"/paaws/cluster/{cluster}"
+    )
     cluster_parameters = {
         k: outputs[k]
         for k in [

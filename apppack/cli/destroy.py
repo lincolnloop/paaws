@@ -82,9 +82,13 @@ def cluster(name):
 @destroy.command
 @click.argument("name")
 def app(name):
-    stack_id = boto3.resource("dynamodb").Table("paaws").get_item(
-        Key={"primary_id": f"APP#{name}", "secondary_id": "settings"}
-    )["Item]["value"]["stack_id"]
+    stack_id = (
+        boto3.resource("dynamodb")
+        .Table("paaws")
+        .get_item(Key={"primary_id": f"APP#{name}", "secondary_id": "settings"})[
+            "Item"
+        ]["value"]["stack_id"]
+    )
     cprint(
         f'This will destroy the Paaws app "{name}". Are you sure you want to continue?',
         "red",
